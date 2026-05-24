@@ -1,0 +1,99 @@
+# docs/api/openapi.yaml
+# OpenAPI 3.0 спецификация REST API.
+# Генерируется через @fastify/swagger из route options + здесь ручные дополнения.
+#
+# Просмотр: http://localhost:3000/docs (Swagger UI) после запуска api-gateway.
+
+openapi: 3.0.3
+info:
+  title: Langton Arena API
+  version: 1.0.0
+  description: PvP клеточный автомат — REST API
+  license: { name: MIT }
+
+servers:
+  - { url: https://api.langton-arena.com/api/v1, description: Production }
+  - { url: http://localhost:3000/api/v1, description: Local dev }
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/register:
+    post:
+      tags: [auth]
+      security: []
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, email, password]
+              properties:
+                username: { type: string, minLength: 3, maxLength: 20 }
+                email:    { type: string, format: email }
+                password: { type: string, minLength: 8 }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/TokenPair' } } } }
+        '400': { description: Validation error }
+        '409': { description: Username or email taken }
+
+  /auth/login:
+    post:
+      tags: [auth]
+      security: []
+      summary: Login with email + password
+      # ... (TODO: дозаполнить все endpoints из backend §3.2.1)
+
+  /me:
+    get:
+      tags: [me]
+      summary: Get current user profile
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/User' } } } }
+
+  /players/{id}:
+    get:
+      tags: [players]
+      summary: Get public profile by id
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+
+  # TODO: добавить /players/:id/history, /players/:id/heatmaps,
+  #              /matches/:id, /matches/:id/replay,
+  #              /leaderboard/global, /leaderboard/friends,
+  #              /meta/rules/winrate, /meta/heatmaps/deaths,
+  #              /matchmaking/queue (POST/DELETE),
+  #              /store/items, /store/purchase,
+  #              /social/friends/* (request/accept),
+  #              /reports
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+
+  schemas:
+    TokenPair:
+      type: object
+      properties:
+        userId:       { type: string, format: uuid }
+        accessToken:  { type: string }
+        refreshToken: { type: string }
+
+    User:
+      type: object
+      properties:
+        id:        { type: string, format: uuid }
+        username:  { type: string }
+        level:     { type: integer }
+        sr:        { type: integer }
+        rank:
+          type: object
+          properties:
+            id:    { type: string, enum: [bronze, silver, gold, platinum, diamond, master, grandmaster] }
+            label: { type: string }
+            color: { type: string }

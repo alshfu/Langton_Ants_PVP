@@ -1,0 +1,42 @@
+# EditorConfig — единые настройки форматирования для всех IDE.
+# https://editorconfig.org
+# Корневой файл проекта Langton Arena. Действует на langton-arena-web/,
+# langton-arena-backend/ и ux-prototype/.
+
+root = true
+
+# ── Все файлы по умолчанию ────────────────────────────────
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+max_line_length = 120
+
+# ── Markdown — trailing whitespace значим (два пробела = <br>) ──
+[*.md]
+trim_trailing_whitespace = false
+max_line_length = off
+
+# ── YAML — Kubernetes/Docker конфиги ──────────────────────
+[*.{yml,yaml}]
+indent_size = 2
+
+# ── SQL миграции — читаемость с большими отступами ────────
+[*.sql]
+indent_size = 4
+
+# ── Makefile — синтаксис требует табы ─────────────────────
+[Makefile]
+indent_style = tab
+
+# ── Shell-скрипты ─────────────────────────────────────────
+[*.sh]
+indent_size = 2
+end_of_line = lf
+
+# ── package.json — стандарт npm requires 2 пробела ────────
+[package.json]
+indent_size = 2

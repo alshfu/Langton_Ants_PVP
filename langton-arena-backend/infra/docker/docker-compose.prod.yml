@@ -1,0 +1,81 @@
+# infra/docker/docker-compose.prod.yml
+# Минимальный single-host production. Для serious prod используем k8s (../k8s/).
+
+version: '3.8'
+
+services:
+  api-gateway:
+    build: { context: ../.., dockerfile: services/api-gateway/Dockerfile }
+    environment:
+      NODE_ENV: production
+      API_PORT: 3000
+      PG_HOST: postgres
+      REDIS_HOST: redis
+    ports: ["3000:3000"]
+    depends_on: [postgres, redis]
+    deploy: { replicas: 2 }
+
+  ws-gateway:
+    build: { context: ../.., dockerfile: services/ws-gateway/Dockerfile }
+    environment:
+      NODE_ENV: production
+      WS_PORT: 3001
+      REDIS_HOST: redis
+    ports: ["3001:3001"]
+    depends_on: [redis]
+    deploy: { replicas: 2 }
+
+  game-worker:
+    build: { context: ../.., dockerfile: services/game-worker/Dockerfile }
+    environment:
+      NODE_ENV: production
+      REDIS_HOST: redis
+      PG_HOST: postgres
+    depends_on: [redis, postgres]
+    deploy: { replicas: 4 }
+
+  matchmaker:
+    build: { context: ../.., dockerfile: services/matchmaker/Dockerfile }
+    environment:
+      NODE_ENV: production
+      REDIS_HOST: redis
+    depends_on: [redis]
+    deploy: { replicas: 1 }     # один на регион
+
+  analytics-consumer:
+    build: { context: ../.., dockerfile: services/analytics-consumer/Dockerfile }
+    environment:
+      NODE_ENV: production
+      KAFKA_BROKERS: redpanda:9092
+      CLICKHOUSE_HOST: clickhouse
+    depends_on: [redpanda, clickhouse]
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: langton_arena
+      POSTGRES_USER: langton
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+    volumes: [pg_data:/var/lib/postgresql/data]
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf", "--requirepass", "${REDIS_PASSWORD}"]
+    volumes:
+      - ../redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - redis_data:/data
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.1-alpine
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ../clickhouse/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+
+  redpanda:
+    image: redpandadata/redpanda:v24.1.1
+    command: redpanda start --smp 2 --memory 2G --overprovisioned --node-id 0 --check=false
+
+volumes:
+  pg_data:
+  redis_data:
+  clickhouse_data:

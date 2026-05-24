@@ -1,0 +1,12 @@
+# Корневой docker-compose.yml — символическая ссылка на dev-конфигурацию.
+# Реальные конфиги лежат в infra/docker/.
+#
+# Для запуска:
+#   docker-compose -f infra/docker/docker-compose.dev.yml up -d
+#
+# Этот файл оставлен для удобства IDE и привычки `docker-compose up`
+# из корня репозитория.
+
+version: '3.8'
+include:
+  - infra/docker/docker-compose.dev.yml

@@ -1,0 +1,25 @@
+{
+  "name": "@langton/ws-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev":   "tsx watch ./src/index.ts",
+    "start": "node ./dist/index.js",
+    "test":  "vitest run"
+  },
+  "dependencies": {
+    "@langton/core": "workspace:*",
+    "ioredis":       "^5.3.0",
+    "jose":          "^5.2.0",
+    "pino":          "^8.18.0",
+    "ws":            "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/ws":  "^8.5.0",
+    "tsx":        "^4.7.0",
+    "typescript": "^5.3.0",
+    "vitest":     "^1.2.0"
+  }
+}

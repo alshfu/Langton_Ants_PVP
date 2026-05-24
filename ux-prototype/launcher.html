@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Langton Arena · prototypes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" />
+  <style>
+    :root {
+      --bg: #0E0B1F;
+      --fg: #F5F5F7;
+      --muted: #8E8E93;
+      --dim: #5A5870;
+      --line: rgba(255,255,255,.08);
+      --accent: #FFD60A;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; min-height: 100%; background: var(--bg); color: var(--fg); font-family: 'Inter', system-ui, sans-serif; }
+    body {
+      display: flex; flex-direction: column;
+      background-image:
+        radial-gradient(ellipse 80% 60% at 20% 0%, rgba(199,125,255,.10), transparent 60%),
+        radial-gradient(ellipse 80% 60% at 80% 100%, rgba(255,214,10,.06), transparent 60%);
+    }
+    .top {
+      padding: 28px 48px; display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid var(--line);
+    }
+    .logo { display: inline-flex; align-items: center; gap: 14px; font-weight: 800; letter-spacing: -.5px; font-size: 22px; }
+    .logo .dot { color: var(--accent); }
+    .logo-mark { display: inline-block; width: 28px; height: 28px; }
+    .eyebrow {
+      font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 500;
+      letter-spacing: 2px; text-transform: uppercase; color: var(--muted);
+    }
+    main {
+      flex: 1; padding: 52px 48px 64px; max-width: 1320px; margin: 0 auto; width: 100%;
+      display: flex; flex-direction: column; gap: 52px;
+    }
+    h1 {
+      font-size: clamp(36px, 5vw, 64px); font-weight: 900; letter-spacing: -2px;
+      line-height: .98; margin: 0;
+    }
+    h1 .accent {
+      background: linear-gradient(90deg, var(--accent), #FF8A3D);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .lead { max-width: 620px; color: var(--muted); font-size: 14px; line-height: 1.65; }
+    .row-sec { display: grid; grid-template-columns: 1.4fr 1fr; gap: 40px; align-items: end; }
+    @media (max-width: 920px) { .row-sec { grid-template-columns: 1fr; } }
+
+    .grid { display: grid; gap: 14px; }
+    .grid-3 { grid-template-columns: repeat(3, 1fr); }
+    .grid-4 { grid-template-columns: repeat(4, 1fr); }
+    @media (max-width: 1100px) {
+      .grid-3, .grid-4 { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 640px) {
+      .grid-3, .grid-4 { grid-template-columns: 1fr; }
+    }
+
+    .section-title { font-size: 12px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; margin-bottom: 14px; display: flex; align-items: center; gap: 12px; }
+    .section-title::after {
+      content: ''; flex: 1; height: 1px;
+      background: linear-gradient(90deg, var(--line), transparent);
+    }
+
+    .card {
+      background: rgba(255,255,255,.02); border: 1px solid var(--line); border-radius: 16px;
+      padding: 22px; text-decoration: none; color: var(--fg); position: relative; overflow: hidden;
+      transition: transform .2s cubic-bezier(.34,1.56,.64,1), border-color .18s, background .18s;
+      display: flex; flex-direction: column; gap: 14px;
+      min-height: 220px;
+    }
+    .card:hover { transform: translateY(-2px); border-color: rgba(255,255,255,.18); background: rgba(255,255,255,.035); }
+    .card.lg { min-height: 320px; padding: 28px; gap: 18px; border-radius: 18px; }
+    .card-thumb {
+      height: 110px; border-radius: 8px; border: 1px solid var(--line);
+      background: #0A081A; position: relative; overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .card.lg .card-thumb { height: 180px; border-radius: 10px; }
+    .card-title { font-size: 17px; font-weight: 700; letter-spacing: -.3px; margin: 0; }
+    .card.lg .card-title { font-size: 22px; letter-spacing: -.5px; }
+    .card-sub { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0; }
+    .card-cta  {
+      margin-top: auto; display: inline-flex; align-items: center; gap: 6px;
+      font-size: 11px; font-weight: 600; color: var(--accent);
+      letter-spacing: .4px; text-transform: uppercase;
+    }
+    .chip-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .chip {
+      display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 4px;
+      background: rgba(255,214,10,.10); color: var(--accent); font-size: 9px; font-weight: 700;
+      letter-spacing: .8px; text-transform: uppercase; border: 1px solid rgba(255,214,10,.20);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .chip.new { background: rgba(57,217,138,.10); color: #39D98A; border-color: rgba(57,217,138,.20); }
+    .chip.beta{ background: rgba(199,125,255,.10); color: #C77DFF; border-color: rgba(199,125,255,.20); }
+    .chip.sys { background: rgba(77,168,255,.10); color: #4DA8FF; border-color: rgba(77,168,255,.20); }
+    .chip.mut { background: rgba(255,255,255,.04); color: var(--muted); border-color: var(--line); }
+
+    /* mini thumbnails */
+    .ant {
+      width: 14px; height: 14px; border-radius: 50%; position: relative;
+      box-shadow: 0 0 10px currentColor;
+    }
+    .ant::after { content: ''; position: absolute; inset: 30%; border-radius: 50%; background: #fff; }
+    .gridlines {
+      position: absolute; inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.03) 1px, transparent 1px);
+      background-size: 14px 14px;
+    }
+    .blob {
+      position: absolute; filter: blur(6px); border-radius: 50%; opacity: .65;
+    }
+
+    /* files panel */
+    .files {
+      background: rgba(255,255,255,.02); border: 1px solid var(--line); border-radius: 16px;
+      padding: 22px; display: flex; flex-direction: column; gap: 10px;
+    }
+    .files h3 { margin: 0 0 6px; font-size: 12px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+    .files a {
+      color: var(--muted); text-decoration: none; font-family: 'JetBrains Mono', monospace; font-size: 11px;
+      display: flex; align-items: baseline; gap: 12px; padding: 4px 0; border-bottom: 1px dashed rgba(255,255,255,.04);
+    }
+    .files a:last-child { border-bottom: none; }
+    .files a:hover { color: var(--fg); }
+    .files a .name { color: #B0AEBC; }
+    .files a:hover .name { color: var(--accent); }
+    .files a .desc { color: var(--dim); font-size: 10px; }
+
+    footer { padding: 28px 48px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; font-family: 'JetBrains Mono', monospace; max-width: 1320px; margin: 0 auto; width: 100%; box-sizing: border-box; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+    footer a { color: var(--muted); text-decoration: none; }
+    footer a:hover { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="logo">
+      <svg class="logo-mark" viewBox="0 0 28 28">
+        <rect x="2"  y="2"  width="11" height="11" rx="1.5" fill="#F5F5F7" opacity=".22" />
+        <rect x="15" y="2"  width="11" height="11" rx="1.5" fill="#F5F5F7" opacity=".42" />
+        <rect x="2"  y="15" width="11" height="11" rx="1.5" fill="#F5F5F7" opacity=".62" />
+        <rect x="15" y="15" width="11" height="11" rx="1.5" fill="#FFD60A" />
+        <circle cx="20.5" cy="20.5" r="2.2" fill="#F5F5F7" />
+        <circle cx="22.6" cy="20.5" r="1.0" fill="#FFD60A" />
+      </svg>
+      LANGTON<span class="dot">·</span>ARENA
+    </div>
+    <div style="display:flex; align-items:center; gap:14px;">
+      <span class="chip new">contract v1.0</span>
+      <span class="eyebrow">prototype · build a47bc89</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Hero -->
+    <section class="row-sec">
+      <div style="display:flex; flex-direction:column; gap:14px;">
+        <span class="eyebrow">a complete UI scaffold</span>
+        <h1>Plug in your <span class="accent">logic</span>.</h1>
+        <p class="lead">
+          The full Langton Arena interface, built one-to-one against the v1.0 contract.
+          14 screens · contract-typed AppState · 50+ named actions · system overlays
+          (toasts, modals, connection banner, ping) · 6 themes · empty / loading / error / full states.
+          Hand it a controller and it runs.
+        </p>
+        <div class="chip-row" style="margin-top:6px;">
+          <span class="chip">14 screens</span>
+          <span class="chip sys">contract-aligned state</span>
+          <span class="chip sys">50+ actions</span>
+          <span class="chip beta">storybook</span>
+          <span class="chip">a11y · colorblind · high-contrast</span>
+        </div>
+      </div>
+
+      <div class="files">
+        <h3>code map</h3>
+        <a href="state.jsx"><span class="name">state.jsx</span> <span class="desc">AppState · contract v1.0</span></a>
+        <a href="themes.jsx"><span class="name">themes.jsx</span> <span class="desc">6 theme tokens</span></a>
+        <a href="system-overlays.jsx"><span class="name">system-overlays.jsx</span> <span class="desc">toasts · modals · banner</span></a>
+        <a href="ui.jsx"><span class="name">ui.jsx</span> <span class="desc">shared primitives</span></a>
+        <a href="charts.jsx"><span class="name">charts.jsx</span> <span class="desc">stat chart primitives</span></a>
+        <a href="langton.jsx"><span class="name">langton.jsx</span> <span class="desc">live simulation engine</span></a>
+        <a href="audio.js"><span class="name">audio.js</span> <span class="desc">synth fx</span></a>
+        <a href="screens-menu.jsx"><span class="name">screens-menu.jsx</span> <span class="desc">menu · finding · lobby · tutorial</span></a>
+        <a href="screens-match.jsx"><span class="name">screens-match.jsx</span> <span class="desc">live HUD</span></a>
+        <a href="screens-result.jsx"><span class="name">screens-result.jsx</span> <span class="desc">result · reward</span></a>
+        <a href="screens-stats.jsx"><span class="name">screens-stats.jsx</span> <span class="desc">profile · history · meta · leaderboard</span></a>
+        <a href="screens-settings.jsx"><span class="name">screens-settings.jsx</span> <span class="desc">8 categories</span></a>
+        <a href="screens-sandbox.jsx"><span class="name">screens-sandbox.jsx</span> <span class="desc">web-only laboratory</span></a>
+        <a href="screens-credits.jsx"><span class="name">screens-credits.jsx</span> <span class="desc">credits / about</span></a>
+        <a href="screens-changelog.jsx"><span class="name">screens-changelog.jsx</span> <span class="desc">patch notes</span></a>
+      </div>
+    </section>
+
+    <!-- Primary entry points -->
+    <section>
+      <div class="section-title">prototypes</div>
+      <div class="grid grid-3">
+        <a class="card lg" href="desktop.html">
+          <div class="card-thumb">
+            <div class="gridlines"></div>
+            <div class="blob" style="width:55%; height:60%; left:18%; top:25%; background:#FF5470"></div>
+            <div class="blob" style="width:48%; height:46%; left:42%; top:38%; background:#4DA8FF"></div>
+            <div class="blob" style="width:32%; height:32%; left:64%; top:18%; background:#39D98A; opacity:.5"></div>
+            <div style="position:absolute; top:55%; left:50%; transform:translate(-50%,-50%); display:flex; gap:6px;">
+              <span class="ant" style="color:#FF5470; background:#FF5470;"></span>
+              <span class="ant" style="color:#4DA8FF; background:#4DA8FF;"></span>
+              <span class="ant" style="color:#39D98A; background:#39D98A;"></span>
+            </div>
+          </div>
+          <div class="chip-row">
+            <span class="chip">desktop</span>
+            <span class="chip mut">1280 × 800</span>
+          </div>
+          <h2 class="card-title">Desktop flow</h2>
+          <p class="card-sub">Full-bleed wide layout. Menu → finding → lobby → live HUD → 3 result variants → reward.</p>
+          <span class="card-cta">Open →</span>
+        </a>
+
+        <a class="card lg" href="mobile.html">
+          <div class="card-thumb">
+            <div style="width:96px; height:160px; border-radius:14px; border:1.5px solid rgba(255,255,255,.16); background:#0A081A; padding:10px 7px; position:relative;">
+              <div style="height:12px; background:rgba(255,255,255,.06); border-radius:3px; margin-bottom:6px;"></div>
+              <div style="height:46px; background:rgba(255,84,112,.16); border-radius:5px; margin-bottom:5px; position:relative; overflow:hidden;">
+                <div class="blob" style="width:100%; height:100%; background:#FF5470; opacity:.35; filter:blur(6px);"></div>
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(5,1fr); gap:2px;">
+                <div style="height:22px; background:rgba(255,214,10,.16); border-radius:3px;"></div>
+                <div style="height:22px; background:rgba(77,168,255,.16); border-radius:3px;"></div>
+                <div style="height:22px; background:rgba(255,84,112,.2); border-radius:3px;"></div>
+                <div style="height:22px; background:rgba(255,255,255,.04); border-radius:3px;"></div>
+                <div style="height:22px; background:rgba(255,255,255,.04); border-radius:3px;"></div>
+              </div>
+            </div>
+          </div>
+          <div class="chip-row">
+            <span class="chip">mobile</span>
+            <span class="chip mut">390 × 844</span>
+          </div>
+          <h2 class="card-title">Mobile flow</h2>
+          <p class="card-sub">Portrait. Touch-first nav, compact leaderboard above the field, condensed results.</p>
+          <span class="card-cta">Open →</span>
+        </a>
+
+        <a class="card lg" href="index.html">
+          <div class="card-thumb">
+            <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:3px; padding:14px; width:100%; height:100%;">
+              <div style="background:#0A081A; border-radius:3px; border:1px solid var(--line);"></div>
+              <div style="background:#0A081A; border-radius:3px; border:1px solid var(--line); position:relative; overflow:hidden;">
+                <div class="blob" style="inset:10%; background:#C77DFF; opacity:.5;"></div>
+              </div>
+              <div style="background:#0A081A; border-radius:3px; border:1px solid var(--line);"></div>
+              <div style="background:#0A081A; border-radius:3px; border:1px solid var(--line); position:relative; overflow:hidden;">
+                <div class="blob" style="inset:10%; background:#FFD60A; opacity:.4;"></div>
+              </div>
+              <div style="background:#0A081A; border-radius:3px; border:1px solid var(--line);"></div>
+              <div style="background:#0A081A; border-radius:3px; border:1px solid var(--line);"></div>
+            </div>
+          </div>
+          <div class="chip-row">
+            <span class="chip">canvas</span>
+            <span class="chip mut">all artboards</span>
+          </div>
+          <h2 class="card-title">Design canvas</h2>
+          <p class="card-sub">Every screen side-by-side on a pannable canvas. Tweak panel for live parameters.</p>
+          <span class="card-cta">Open →</span>
+        </a>
+      </div>
+    </section>
+
+    <!-- Storybook -->
+    <section>
+      <div class="section-title">storybook</div>
+      <div class="grid" style="grid-template-columns: 1fr;">
+        <a class="card" href="storybook.html" style="flex-direction: row; align-items: stretch; padding: 0; min-height: 200px;">
+          <div class="card-thumb" style="width: 280px; flex: 0 0 280px; height: auto; border-radius: 16px 0 0 16px; border-right: 1px solid var(--line); border-top: none; border-bottom: none; border-left: none;">
+            <div class="gridlines"></div>
+            <div style="position:absolute; inset:14px; display:grid; grid-template-columns:repeat(3,1fr); gap:6px;">
+              <div style="background:#0A081A; border:1px solid var(--line); border-radius:4px; box-shadow: 0 0 0 1px rgba(255,214,10,.35) inset;"></div>
+              <div style="background:rgba(57,217,138,.10); border:1px solid rgba(57,217,138,.25); border-radius:4px;"></div>
+              <div style="background:rgba(77,168,255,.10); border:1px solid rgba(77,168,255,.25); border-radius:4px;"></div>
+              <div style="background:rgba(255,69,58,.10); border:1px solid rgba(255,69,58,.25); border-radius:4px;"></div>
+              <div style="background:rgba(255,255,255,.04); border:1px solid var(--line); border-radius:4px;"></div>
+              <div style="background:rgba(255,255,255,.04); border:1px solid var(--line); border-radius:4px;"></div>
+            </div>
+            <div style="position:absolute; bottom:10px; left:14px; font-family:'JetBrains Mono',monospace; font-size:9px; color:#5A5870; letter-spacing:1px;">full · empty · loading · error</div>
+          </div>
+          <div style="padding: 24px 28px; display: flex; flex-direction: column; gap: 14px; flex: 1;">
+            <div class="chip-row">
+              <span class="chip new">new</span>
+              <span class="chip beta">storybook</span>
+              <span class="chip mut">empty / loading / error / full</span>
+            </div>
+            <h2 class="card-title" style="font-size: 22px; letter-spacing:-.5px;">All screens · all states</h2>
+            <p class="card-sub" style="font-size: 13px; max-width: 520px;">
+              Browse every screen with every state variant. Auto-scales artboards to fit. Each variant
+              calls <code style="color:#FFD60A">sceneState(screen, variant)</code> so you can see exactly
+              what data shape your controller needs to provide.
+            </p>
+            <span class="card-cta">Browse storybook →</span>
+          </div>
+        </a>
+      </div>
+    </section>
+
+    <!-- System screens -->
+    <section>
+      <div class="section-title">system screens · new</div>
+      <div class="grid grid-4">
+
+        <a class="card" href="settings.html">
+          <div class="card-thumb">
+            <div style="position:absolute; inset:14px; display:grid; grid-template-columns:60px 1fr; gap:4px;">
+              <div style="background:rgba(255,255,255,.04); border-radius:3px; display:flex; flex-direction:column; gap:2px; padding:4px;">
+                <div style="height:6px; background:rgba(255,214,10,.4); border-radius:1px;"></div>
+                <div style="height:6px; background:rgba(255,255,255,.08); border-radius:1px;"></div>
+                <div style="height:6px; background:rgba(255,255,255,.08); border-radius:1px;"></div>
+                <div style="height:6px; background:rgba(255,255,255,.08); border-radius:1px;"></div>
+              </div>
+              <div style="background:rgba(255,255,255,.02); border-radius:3px; padding:6px; display:flex; flex-direction:column; gap:4px;">
+                <div style="height:10px; background:rgba(255,255,255,.08); border-radius:2px; width:70%;"></div>
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:3px 0; border-bottom:1px dashed rgba(255,255,255,.06);">
+                  <div style="height:5px; width:40%; background:rgba(255,255,255,.06); border-radius:1px;"></div>
+                  <div style="width:14px; height:8px; background:#FFD60A; border-radius:999px;"></div>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:3px 0; border-bottom:1px dashed rgba(255,255,255,.06);">
+                  <div style="height:5px; width:50%; background:rgba(255,255,255,.06); border-radius:1px;"></div>
+                  <div style="width:14px; height:8px; background:rgba(255,255,255,.10); border-radius:999px;"></div>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:3px 0;">
+                  <div style="height:5px; width:45%; background:rgba(255,255,255,.06); border-radius:1px;"></div>
+                  <div style="width:14px; height:8px; background:#FFD60A; border-radius:999px;"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="chip-row"><span class="chip">settings</span><span class="chip mut">8 categories</span></div>
+          <h2 class="card-title">Settings</h2>
+          <p class="card-sub">Graphics · audio · controls · gameplay · accessibility · notifications · privacy · account.</p>
+          <span class="card-cta">Open →</span>
+        </a>
+
+        <a class="card" href="sandbox.html">
+          <div class="card-thumb">
+            <div class="gridlines"></div>
+            <div class="blob" style="width:30%; height:30%; left:20%; top:20%; background:#FF5470;"></div>
+            <div class="blob" style="width:34%; height:30%; left:55%; top:25%; background:#4DA8FF;"></div>
+            <div class="blob" style="width:26%; height:28%; left:30%; top:55%; background:#39D98A;"></div>
+            <div class="blob" style="width:30%; height:26%; left:60%; top:55%; background:#FFD60A;"></div>
+            <div style="position:absolute; bottom:10px; left:14px; font-family:'JetBrains Mono',monospace; font-size:9px; color:#5A5870; letter-spacing:1px;">80×60 · torus · 18 tps</div>
+          </div>
+          <div class="chip-row"><span class="chip">sandbox</span><span class="chip beta">web only</span></div>
+          <h2 class="card-title">Sandbox</h2>
+          <p class="card-sub">Live laboratory. 50+ tweakable params, presets, saved slots, transport bar.</p>
+          <span class="card-cta">Open →</span>
+        </a>
+
+        <a class="card" href="credits.html">
+          <div class="card-thumb">
+            <div style="position:absolute; inset:14px; display:flex; flex-direction:column; gap:4px;">
+              <div style="height:14px; background:linear-gradient(90deg,#FFD60A,#FF8A3D); border-radius:2px; width:80%;"></div>
+              <div style="height:6px; background:rgba(255,255,255,.06); border-radius:1px; width:60%; margin-top:6px;"></div>
+              <div style="height:4px; background:rgba(255,255,255,.04); border-radius:1px; width:90%; margin-top:8px;"></div>
+              <div style="height:4px; background:rgba(255,255,255,.04); border-radius:1px; width:85%;"></div>
+              <div style="height:4px; background:rgba(255,255,255,.04); border-radius:1px; width:70%;"></div>
+              <div style="height:6px; background:rgba(255,214,10,.5); border-radius:1px; width:30%; margin-top:6px;"></div>
+              <div style="height:4px; background:rgba(255,255,255,.04); border-radius:1px; width:75%;"></div>
+            </div>
+          </div>
+          <div class="chip-row"><span class="chip">credits</span><span class="chip mut">about</span></div>
+          <h2 class="card-title">Credits</h2>
+          <p class="card-sub">Design, engineering, production, special thanks. Build metadata + tech stack.</p>
+          <span class="card-cta">Open →</span>
+        </a>
+
+        <a class="card" href="changelog.html">
+          <div class="card-thumb">
+            <div style="position:absolute; inset:14px; display:flex; flex-direction:column; gap:6px;">
+              <div style="display:flex; gap:8px; align-items:center;">
+                <div style="width:8px; height:8px; border-radius:50%; background:#FFD60A; box-shadow:0 0 8px #FFD60A;"></div>
+                <div style="height:8px; background:rgba(255,214,10,.4); border-radius:2px; width:25%;"></div>
+                <div style="margin-left:auto; height:5px; background:rgba(255,255,255,.06); border-radius:1px; width:30%;"></div>
+              </div>
+              <div style="margin-left:14px; height:1px; background:rgba(255,214,10,.3);"></div>
+              <div style="margin-left:14px; height:4px; background:rgba(255,255,255,.06); border-radius:1px; width:80%;"></div>
+              <div style="display:flex; gap:8px; align-items:center; margin-top:4px;">
+                <div style="width:8px; height:8px; border-radius:50%; background:#0E0B1F; border:2px solid #5A5870;"></div>
+                <div style="height:7px; background:rgba(255,255,255,.10); border-radius:2px; width:20%;"></div>
+              </div>
+              <div style="margin-left:14px; height:1px; background:rgba(255,255,255,.05);"></div>
+              <div style="margin-left:14px; height:4px; background:rgba(255,255,255,.04); border-radius:1px; width:75%;"></div>
+            </div>
+          </div>
+          <div class="chip-row"><span class="chip">changelog</span><span class="chip mut">5 releases</span></div>
+          <h2 class="card-title">Changelog</h2>
+          <p class="card-sub">Patch notes timeline. Feature / UX / tweak / fix categories per release.</p>
+          <span class="card-cta">Open →</span>
+        </a>
+
+      </div>
+    </section>
+
+    <!-- System layers -->
+    <section>
+      <div class="section-title">system overlays · always on top</div>
+      <div class="grid grid-4">
+        <div class="card" style="cursor: default; pointer-events: none;">
+          <div class="card-thumb">
+            <div style="background:#16122A; border:1px solid rgba(255,69,58,.42); border-left:3px solid #FF453A; border-radius:7px; padding:8px 10px; min-width:160px; display:flex; gap:8px; align-items:flex-start; box-shadow: 0 8px 20px rgba(0,0,0,.4);">
+              <div style="width:14px; height:14px; border-radius:50%; background:rgba(255,69,58,.2); border:1px solid rgba(255,69,58,.4); color:#FF453A; font-weight:800; font-size:9px; display:flex; align-items:center; justify-content:center;">×</div>
+              <div style="font-size:9px; color:#F5F5F7; line-height:1.4;">Connection lost · retrying<br/><span style="color:#FF453A; font-weight:600; font-size:8px; letter-spacing:.5px; text-transform:uppercase;">RECONNECT →</span></div>
+            </div>
+          </div>
+          <div class="chip-row"><span class="chip mut">toast</span></div>
+          <h2 class="card-title">Toasts</h2>
+          <p class="card-sub">4 types · stacked top-right · swipe-to-dismiss · optional action button.</p>
+        </div>
+
+        <div class="card" style="cursor: default; pointer-events: none;">
+          <div class="card-thumb">
+            <div style="background:#16122A; border:1px solid rgba(255,255,255,.10); border-radius:8px; padding:10px 12px; min-width:170px; box-shadow:0 8px 20px rgba(0,0,0,.5);">
+              <div style="font-size:10px; font-weight:700; color:#F5F5F7; margin-bottom:6px;">Forfeit match?</div>
+              <div style="font-size:8px; color:#B0AEBC; line-height:1.4; margin-bottom:8px;">You'll lose −12 SR.</div>
+              <div style="display:flex; gap:4px; justify-content:flex-end;">
+                <div style="padding:3px 8px; border-radius:4px; border:1px solid rgba(255,255,255,.16); color:#F5F5F7; font-size:8px; font-weight:700;">CANCEL</div>
+                <div style="padding:3px 8px; border-radius:4px; background:#FF453A; color:#fff; font-size:8px; font-weight:700;">FORFEIT</div>
+              </div>
+            </div>
+          </div>
+          <div class="chip-row"><span class="chip mut">modal</span></div>
+          <h2 class="card-title">Modals</h2>
+          <p class="card-sub">Confirm · alert · input. Keyboard-dismissable, primary / ghost / danger buttons.</p>
+        </div>
+
+        <div class="card" style="cursor: default; pointer-events: none;">
+          <div class="card-thumb">
+            <div style="background:linear-gradient(180deg, rgba(255,138,61,.16), rgba(255,138,61,.04)); border-bottom:1px solid rgba(255,138,61,.5); padding:8px 12px; min-width:200px; display:flex; align-items:center; gap:8px; border-radius:5px;">
+              <div style="width:10px; height:10px; border-radius:50%; border:2px solid rgba(255,138,61,.3); border-top-color:#FF8A3D; animation:spin360 .9s linear infinite;"></div>
+              <div style="font-size:8px; color:#FF8A3D; font-weight:700; letter-spacing:.5px; text-transform:uppercase;">Reconnecting…</div>
+              <div style="font-size:8px; color:#B0AEBC; margin-left:auto;">Attempt 2/5</div>
+            </div>
+          </div>
+          <div class="chip-row"><span class="chip mut">banner</span></div>
+          <h2 class="card-title">Connection banner</h2>
+          <p class="card-sub">Top-of-screen banner. Spinner, attempt counter, retry / cancel actions.</p>
+        </div>
+
+        <div class="card" style="cursor: default; pointer-events: none;">
+          <div class="card-thumb">
+            <div style="background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08); border-radius:999px; padding:6px 12px; display:inline-flex; align-items:center; gap:8px; font-family:'JetBrains Mono',monospace; font-size:10px;">
+              <div style="display:flex; align-items:flex-end; gap:1.5px;">
+                <div style="width:2.5px; height:5px; background:#39D98A; border-radius:1px;"></div>
+                <div style="width:2.5px; height:7px; background:#39D98A; border-radius:1px;"></div>
+                <div style="width:2.5px; height:9px; background:#39D98A; border-radius:1px;"></div>
+                <div style="width:2.5px; height:11px; background:#39D98A; border-radius:1px;"></div>
+                <div style="width:2.5px; height:13px; background:#39D98A; border-radius:1px;"></div>
+              </div>
+              <span style="color:#39D98A; font-weight:600;">32<span style="color:#8E8E93; font-weight:400;"> ms</span></span>
+              <span style="color:#5A5870;">±4</span>
+            </div>
+          </div>
+          <div class="chip-row"><span class="chip mut">indicator</span></div>
+          <h2 class="card-title">Ping indicator</h2>
+          <p class="card-sub">Color-coded per contract §7.6 · green &lt; 30ms · yellow &lt; 80 · orange &lt; 150 · red ≥ 150.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- How to connect -->
+    <section>
+      <div class="section-title">drop-in usage</div>
+      <div class="card" style="padding:28px; min-height:0;">
+        <h2 class="card-title" style="font-size:20px;">How to plug your logic in</h2>
+        <p class="card-sub" style="font-size:13px; max-width:780px; margin-bottom:8px;">
+          Every screen is a pure React function of <code style="color:#FFD60A; font-family:'JetBrains Mono',monospace;">{ data, actions }</code>.
+          Build your <code style="color:#FFD60A;">AppState</code> per <a href="uploads/langton-arena-interface-contract.md" style="color:#4DA8FF;">the contract</a>,
+          wire your handlers into the named actions, render the same components — done.
+        </p>
+        <pre style="margin: 14px 0 0; padding: 18px 20px; background:#0A081A; border:1px solid var(--line); border-radius:10px; font-family:'JetBrains Mono',monospace; font-size:12px; line-height:1.6; color:#B0AEBC; overflow:auto;">
+<span style="color:#5A5870;">// 1. State per contract</span>
+<span style="color:#C77DFF;">const</span> appState = <span style="color:#39D98A;">defaultState</span>();        <span style="color:#5A5870;">// or build your own AppState</span>
+
+<span style="color:#5A5870;">// 2. Wire actions (any subset)</span>
+<span style="color:#C77DFF;">const</span> actions = {
+  ...<span style="color:#39D98A;">defaultActions</span>(),
+  <span style="color:#4DA8FF;">onPlay</span>:          () =&gt; matchmaker.<span style="color:#39D98A;">start</span>(<span style="color:#FFD60A;">'arena_ranked'</span>),
+  <span style="color:#4DA8FF;">onLobbyReady</span>:    () =&gt; ws.<span style="color:#39D98A;">send</span>({ type: <span style="color:#FFD60A;">'READY'</span> }),
+  <span style="color:#4DA8FF;">onSquadChange</span>:   (i, ruleId) =&gt; ws.<span style="color:#39D98A;">send</span>({ type: <span style="color:#FFD60A;">'SQUAD_CHANGE'</span>, i, ruleId }),
+  <span style="color:#4DA8FF;">onChangeAntRule</span>: (id, rule) =&gt; engine.<span style="color:#39D98A;">swapRule</span>(id, rule),
+  <span style="color:#4DA8FF;">onToastDismiss</span>:  (id) =&gt; <span style="color:#39D98A;">dismissToast</span>(id),
+};
+
+<span style="color:#5A5870;">// 3. Render whichever screen the user is on</span>
+&lt;<span style="color:#FF8A3D;">MainMenuDesktop</span>  data={appState} actions={actions} /&gt;
+&lt;<span style="color:#FF8A3D;">MatchHUDDesktop</span>  data={appState} actions={actions} /&gt;
+&lt;<span style="color:#FF8A3D;">SettingsDesktop</span>  data={appState} actions={actions} /&gt;
+&lt;<span style="color:#FF8A3D;">SandboxDesktop</span>   data={appState} actions={actions} /&gt;
+</pre>
+        <div class="chip-row" style="margin-top:18px;">
+          <span class="chip new">no business logic in screens</span>
+          <span class="chip">pure functions of state</span>
+          <span class="chip">all formatting done in state</span>
+          <span class="chip sys">14 entry components</span>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <span>state-driven · 14 screens · contract v1.0 · 6 themes · live sim · system overlays</span>
+    <span>
+      <a href="uploads/langton-arena-interface-contract.md">contract spec</a> ·
+      <a href="DOCS.md">docs</a> ·
+      <a href="storybook.html">storybook</a> ·
+      <a href="tests.html">tests</a>
+    </span>
+  </footer>
+  <style>@keyframes spin360 { to { transform: rotate(360deg) } }</style>
+</body>
+</html>

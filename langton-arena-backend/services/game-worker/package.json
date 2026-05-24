@@ -1,0 +1,24 @@
+{
+  "name": "@langton/game-worker",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev":   "tsx watch ./src/index.ts",
+    "start": "node ./dist/index.js",
+    "test":  "vitest run"
+  },
+  "dependencies": {
+    "@langton/core":     "workspace:*",
+    "@aws-sdk/client-s3": "^3.500.0",
+    "ioredis":           "^5.3.0",
+    "pg":                "^8.11.0",
+    "pino":              "^8.18.0"
+  },
+  "devDependencies": {
+    "tsx":        "^4.7.0",
+    "typescript": "^5.3.0",
+    "vitest":     "^1.2.0"
+  }
+}

@@ -1,0 +1,22 @@
+# infra/k8s/game-worker.yaml
+# Game Worker — StatefulSet потому что нам важна стабильность имен подов
+# (для routing активных матчей).
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: { name: game-worker }
+spec:
+  replicas: 4
+  serviceName: game-worker
+  selector: { matchLabels: { app: game-worker } }
+  template:
+    metadata: { labels: { app: game-worker } }
+    spec:
+      terminationGracePeriodSeconds: 600    # дать матчам доиграться
+      containers:
+        - name: game-worker
+          image: ghcr.io/langton/game-worker:latest
+          envFrom: [{ secretRef: { name: arena-secrets } }, { configMapRef: { name: arena-config } }]
+          resources:
+            requests: { cpu: "1",   memory: 512Mi }
+            limits:   { cpu: "2",   memory: 1Gi }

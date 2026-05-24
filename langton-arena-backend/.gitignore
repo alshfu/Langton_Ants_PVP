@@ -1,0 +1,37 @@
+# Node
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets — никогда не коммитим
+infra/keys/*.pem
+infra/keys/*.key
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Replays локальные (для отладки)
+scratch/replays/

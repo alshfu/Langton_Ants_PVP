@@ -1,0 +1,18 @@
+# infra/monitoring/prometheus.yml
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - 'alerts.yml'
+
+scrape_configs:
+  - job_name: 'api-gateway'
+    static_configs: [{ targets: ['api-gateway:9090'] }]
+  - job_name: 'ws-gateway'
+    static_configs: [{ targets: ['ws-gateway:9090'] }]
+  - job_name: 'game-worker'
+    static_configs: [{ targets: ['game-worker:9090'] }]
+  - job_name: 'matchmaker'
+    static_configs: [{ targets: ['matchmaker:9090'] }]

@@ -1,0 +1,25 @@
+# infra/k8s/ingress.yaml
+# HTTPS ingress с termination SSL через cert-manager.
+# Для WS — отдельный путь с увеличенным таймаутом.
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: arena-ingress
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"   # WS: длинные соединения
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  tls:
+    - hosts: [api.langton-arena.com, ws.langton-arena.com]
+      secretName: arena-tls
+  rules:
+    - host: api.langton-arena.com
+      http:
+        paths:
+          - { path: /, pathType: Prefix, backend: { service: { name: api-gateway, port: { number: 80 } } } }
+    - host: ws.langton-arena.com
+      http:
+        paths:
+          - { path: /, pathType: Prefix, backend: { service: { name: ws-gateway, port: { number: 80 } } } }

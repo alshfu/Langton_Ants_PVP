@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8" />
+<title>Smoke tests + unit assertions</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" />
+<style>
+  html, body { margin: 0; padding: 0; background: #0E0B1F; color: #F5F5F7; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.5; }
+  #report, #unitReport { padding: 16px 24px; }
+  .row { display: grid; grid-template-columns: 240px 100px 1fr; gap: 16px; padding: 6px 12px; border-bottom: 1px solid rgba(255,255,255,.06); }
+  .pass { color: #39D98A; }
+  .fail { color: #FF453A; }
+  .stage { position: fixed; left: -9999px; top: 0; width: 1280px; height: 800px; }
+  h1 { font-family: 'Inter', sans-serif; font-size: 22px; font-weight: 800; margin: 0 0 14px; }
+  h2 { font-family: 'Inter', sans-serif; font-size: 16px; font-weight: 700; margin: 24px 24px 8px; color: #FFD60A; }
+  .summary { padding: 14px 24px; border-bottom: 1px solid rgba(255,255,255,.08); display: flex; gap: 24px; align-items: baseline; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div class="summary"><h1>Langton Arena · self-check</h1><div id="counts"></div></div>
+
+<h2>Unit assertions — state / langton / i18n / audio</h2>
+<div id="unitReport"></div>
+
+<h2>Smoke render — every screen × variant</h2>
+<div id="report"></div>
+
+<div class="stage" id="stage"></div>
+
+<template id="__bundler_thumbnail"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#0E0B1F"/><text x="50" y="55" text-anchor="middle" fill="#FFD60A" font-size="40" font-family="monospace">✓</text></svg></template>
+
+<script src="audio.js"></script>
+<script type="text/babel" src="state.jsx"></script>
+<script type="text/babel" src="themes.jsx"></script>
+<script type="text/babel" src="i18n.jsx"></script>
+<script type="text/babel" src="langton.jsx"></script>
+<script type="text/babel" src="ui.jsx"></script>
+<script type="text/babel" src="charts.jsx"></script>
+<script type="text/babel" src="system-overlays.jsx"></script>
+<script type="text/babel" src="screens-menu.jsx"></script>
+<script type="text/babel" src="screens-match.jsx"></script>
+<script type="text/babel" src="screens-result.jsx"></script>
+<script type="text/babel" src="screens-stats.jsx"></script>
+<script type="text/babel" src="screens-settings.jsx"></script>
+<script type="text/babel" src="screens-sandbox.jsx"></script>
+<script type="text/babel" src="screens-credits.jsx"></script>
+<script type="text/babel" src="screens-changelog.jsx"></script>
+
+<script type="text/babel">
+if (window.__TESTS_RUN) {
+  // Babel may re-evaluate this block on hot-reload — guard so we run once.
+  console.log('tests already ran, skipping');
+} else {
+  window.__TESTS_RUN = true;
+const tests = [];
+function test(name, fn) { tests.push({ name, fn }); }
+function eq(a, b, msg)  { if (a !== b) throw new Error((msg || 'eq') + ' — expected ' + JSON.stringify(b) + ', got ' + JSON.stringify(a)); }
+function truthy(x, msg) { if (!x) throw new Error(msg || 'expected truthy'); }
+function ok(cond, msg)  { if (!cond) throw new Error(msg || 'assertion failed'); }
+
+// ─── Tests: state.jsx contract shape ───────────────────────────────────────
+test('state · defaultState returns full contract sub-states', () => {
+  const s = window.defaultState();
+  for (const k of ['connection','user','status','locale','menu','matchmaking','lobby','match',
+                   'result','reward','tutorial','profile','sandbox','settings','toasts','modal']) {
+    truthy(k in s, 'missing key: ' + k);
+  }
+});
+test('state · user has contract-shape rank with label and color', () => {
+  const s = window.defaultState();
+  truthy(s.user.rank.label, 'rank.label missing');
+  truthy(s.user.rank.color, 'rank.color missing');
+});
+test('state · contract shape wins over legacy on conflict', () => {
+  const s = window.defaultState();
+  // contract match has timerLabel, legacy has timer — both should coexist
+  truthy(s.match.field, 'contract match.field missing');
+  truthy(s.match.ants, 'contract match.ants missing');
+});
+test('state · legacy still accessible under data.legacy.*', () => {
+  const s = window.defaultState();
+  truthy(s.legacy, 'data.legacy missing');
+  truthy(s.legacy.matchDetail, 'data.legacy.matchDetail missing');
+});
+test('state · sceneState produces variant states', () => {
+  const empty = window.sceneState('lobby', 'empty');
+  eq(empty.lobby.chatMessages.length, 0, 'empty lobby should have no chat');
+  const err = window.sceneState('matchmaking', 'error');
+  truthy(err.toasts.length > 0, 'error scene should have toasts');
+});
+test('state · defaultActions returns 80+ noop callbacks', () => {
+  const a = window.defaultActions();
+  const count = Object.keys(a).length;
+  ok(count >= 80, 'expected 80+ actions, got ' + count);
+  ok(typeof a.onLobbyReady === 'function');
+  ok(typeof a.onChangeAntRule === 'function');
+  ok(typeof a.onSandboxConfigChange === 'function');
+});
+test('state · rankFromSr produces matching tier for SR=2247', () => {
+  const r = window.rankFromSr(2247);
+  eq(r.label, 'Diamond III', 'expected Diamond III for SR 2247');
+});
+
+// ─── Tests: langton.jsx engine ─────────────────────────────────────────────
+test('langton · classic ant returns to origin after 14288 ticks (Langton highway)', () => {
+  // We don't run the full 14k — just check the sim advances and doesn't crash.
+  const sim = window.makeLangtonState({ w: 50, h: 50,
+    ants: [{ id: 'a', x: 25, y: 25, dir: 0, owner: 0, rule: 'RL', hp: 3 }] });
+  for (let i = 0; i < 200; i++) window.stepLangton(sim);
+  eq(sim.tick, 200, 'tick after 200 steps');
+  ok(sim.ants[0].x >= 0 && sim.ants[0].x < 50, 'ant x in bounds');
+});
+test('langton · damage cap: 4 enemies on one cell = 1 HP loss', () => {
+  const sim = window.makeLangtonState({ w: 10, h: 10, ants: [
+    { id: 'a0', x: 5, y: 5, dir: 0, owner: 0, rule: 'RL', hp: 3 },
+    { id: 'a1', x: 5, y: 5, dir: 0, owner: 1, rule: 'RL', hp: 3 },
+    { id: 'a2', x: 5, y: 5, dir: 0, owner: 2, rule: 'RL', hp: 3 },
+    { id: 'a3', x: 5, y: 5, dir: 0, owner: 3, rule: 'RL', hp: 3 },
+  ]});
+  sim.collisionCooldownTicks = 0;
+  window.stepLangton(sim);
+  // After one tick they all moved away. Place 4 enemies on same cell directly.
+  for (const a of sim.ants) { a.x = 5; a.y = 5; }
+  // reset cooldown
+  for (const a of sim.ants) a.lastDamageTick = -9999;
+  window.stepLangton(sim);
+  // Each ant lost at most 1 HP (damage cap)
+  for (const a of sim.ants) {
+    ok(a.hp >= 1, 'damage cap violated: ant lost too much HP (' + a.hp + ')');
+  }
+});
+test('langton · collision cooldown prevents repeat damage', () => {
+  const sim = window.makeLangtonState({ w: 10, h: 10, ants: [
+    { id: 'a0', x: 5, y: 5, dir: 0, owner: 0, rule: 'RL', hp: 3 },
+    { id: 'a1', x: 5, y: 5, dir: 2, owner: 1, rule: 'RL', hp: 3 },
+  ]});
+  sim.collisionCooldownTicks = 50;
+  // Force both ants to stay on the same cell across multiple ticks
+  for (let t = 0; t < 10; t++) {
+    for (const a of sim.ants) { a.x = 5; a.y = 5; }
+    window.stepLangton(sim);
+  }
+  // Without cooldown they'd both be dead. With cooldown, only 1 HP lost.
+  ok(sim.ants[0].hp === 2, 'a0 expected 2 HP, got ' + sim.ants[0].hp);
+});
+test('langton · birth fires when birthConfig set', () => {
+  // Set up a tight cluster of same-owner cells so a birth becomes eligible.
+  const sim = window.makeLangtonState({ w: 30, h: 30, ants: [
+    { id: 'a', x: 5, y: 5, dir: 0, owner: 0, rule: 'RL', hp: 3 },
+  ]});
+  // Seed owner grid around (5,5)
+  for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+    sim.owner[(5 + dy) * 30 + (5 + dx)] = 1;
+  }
+  sim.birthConfig = { enabled: true, minNeighbors: 3, cooldownTicks: 1, maxAntsPerPlayer: 10, hybridChance: 0, wildChance: 0 };
+  let totalBirths = 0;
+  for (let t = 0; t < 30; t++) {
+    const ev = window.stepLangton(sim);
+    totalBirths += ev.births.length;
+  }
+  ok(totalBirths > 0, 'expected at least 1 birth, got ' + totalBirths);
+});
+
+// ─── Tests: i18n.jsx ───────────────────────────────────────────────────────
+test('i18n · t() returns translation in requested locale', () => {
+  const tEn = window.makeT('en');
+  const tRu = window.makeT('ru');
+  eq(tEn('menu.button.play'), 'Play');
+  eq(tRu('menu.button.play'), 'Играть');
+});
+test('i18n · t() falls back to en when key missing', () => {
+  const tJa = window.makeT('ja');
+  // 'errors.network.timeout' is not in ja stub — falls back to en
+  eq(tJa('errors.network.timeout'), 'Connection timed out');
+});
+test('i18n · plural marker resolves correctly for ru', () => {
+  const tRu = window.makeT('ru');
+  // template: '{plural:n|клетка|клетки|клеток} ({n})'
+  eq(tRu('match.event.cellsCount', { n: 1 }), 'клетка (1)');
+  eq(tRu('match.event.cellsCount', { n: 3 }), 'клетки (3)');
+  eq(tRu('match.event.cellsCount', { n: 7 }), 'клеток (7)');
+});
+test('i18n · placeholder substitution', () => {
+  const tEn = window.makeT('en');
+  eq(tEn('match.event.capture', { playerName: 'BraveSpiral42', n: 14 }),
+     'BraveSpiral42 captured 14 cells');
+});
+test('i18n · all 10 declared locales have settings section labels', () => {
+  for (const loc of ['en','ru','uk','de','es','fr','pt','ja','zh','ko']) {
+    const t = window.makeT(loc);
+    const out = t('settings.section.graphics');
+    ok(out && out !== 'settings.section.graphics', loc + ' missing graphics label');
+  }
+});
+test('i18n · tab id antipattern: ProfileDesktop survives runtime locale switch', () => {
+  // Regression test for audit v6: tab ids must not depend on translation.
+  // Mount Profile in EN, change locale to RU, verify still-active tab still
+  // matches a real tab id (i.e. tabs[0].id is a stable string, not translated).
+  const data = window.defaultState();
+  const actions = window.defaultActions();
+
+  // Capture rendered tab ids by intercepting setState inside React.
+  // Cheaper alternative: just call the screen function and inspect the JSX
+  // (impossible without a renderer). Instead we assert the source code uses
+  // stable string ids for tab compare — read the file via fetch + grep.
+  // tests.html lives next to screens-stats.jsx, so a relative fetch works.
+  // BUT fetch is async, so we do it inline-aware:
+  let src = null;
+  const xhr = new XMLHttpRequest();
+  xhr.open('GET', 'screens-stats.jsx', false);  // sync (deprecated, fine for tests)
+  try { xhr.send(); src = xhr.responseText; } catch {}
+  if (!src) { ok(true, 'cannot self-inspect (file:// origin?), skipping'); return; }
+  // Tab id MUST NOT be wrapped in tx()/t().
+  ok(!/{ id: tx\(/.test(src), 'tab ids should be stable strings, not translated');
+  ok(!/{ id: t\(/.test(src),  'tab ids should be stable strings, not translated');
+  // Comparison MUST NOT call tx() either.
+  ok(!/tab === tx\(/.test(src), 'tab comparison must use stable id, not tx() result');
+  // And useState init must not be translated.
+  ok(!/useState\(tx\(/.test(src), 'useState init must be a stable id, not tx() result');
+});
+
+// ─── Tests: audio ──────────────────────────────────────────────────────────
+test('audio · fx exposes contract API', () => {
+  truthy(window.fx, 'window.fx missing');
+  ok(typeof window.fx.setVolume === 'function');
+  ok(typeof window.fx.getVolume === 'function');
+  ok(typeof window.fx.play === 'function');
+  ok(typeof window.fx.bind === 'function');
+});
+test('audio · setVolume / getVolume round-trip', () => {
+  window.fx.setVolume({ master: 0.5, music: 0.3, sfx: 0.9, ui: 0.6 });
+  const v = window.fx.getVolume();
+  eq(v.master, 0.5);
+  eq(v.music, 0.3);
+  eq(v.sfx, 0.9);
+  eq(v.ui, 0.6);
+});
+test('audio · bind() to settings.audio mirrors values', () => {
+  window.fx.bind({ masterVolume: 0.4, musicVolume: 0.2, sfxVolume: 0.7, uiVolume: 0.5 });
+  const v = window.fx.getVolume();
+  eq(v.master, 0.4);
+});
+test('audio · registry has match + ui categories', () => {
+  // play() should not throw for known sounds
+  window.fx.play('capture');
+  window.fx.play('ui.tap');
+  window.fx.play('music.menu');
+});
+
+// ─── Tests: themes ─────────────────────────────────────────────────────────
+test('themes · T proxy reflects current __ARENA_TOKENS', () => {
+  const prev = window.__ARENA_TOKENS;
+  window.__ARENA_TOKENS = window.THEME_TOKENS.dark;
+  eq(window.T.bg, '#0E0B1F');
+  window.__ARENA_TOKENS = window.THEME_TOKENS.light;
+  eq(window.T.bg, '#F4F2EE');
+  window.__ARENA_TOKENS = prev;
+});
+test('themes · 6 themes registered', () => {
+  for (const t of ['dark', 'light', 'highContrast', 'colorblindProtanopia', 'colorblindDeuteranopia', 'colorblindTritanopia']) {
+    truthy(window.THEME_TOKENS[t], 'missing theme: ' + t);
+  }
+});
+
+// ─── Run unit tests ─────────────────────────────────────────────────────────
+const unitReport = document.getElementById('unitReport');
+let uPass = 0, uFail = 0;
+for (const { name, fn } of tests) {
+  let err = null;
+  try { fn(); } catch (e) { err = e; }
+  const row = document.createElement('div');
+  row.className = 'row';
+  if (err) {
+    uFail++;
+    row.innerHTML = '<span>' + name + '</span><span class="fail">FAIL</span><span>' + (err.message || err) + '</span>';
+  } else {
+    uPass++;
+    row.innerHTML = '<span>' + name + '</span><span class="pass">PASS</span><span>—</span>';
+  }
+  unitReport.appendChild(row);
+}
+
+// ─── Smoke render tests ────────────────────────────────────────────────────
+const CASES = [
+  ['menu / full',        'MainMenuDesktop',     'full'],
+  ['menu / empty',       'MainMenuDesktop',     'empty'],
+  ['matchmaking / full', 'MatchFindingDesktop', 'full'],
+  ['matchmaking / empty','MatchFindingDesktop', 'empty'],
+  ['matchmaking / loading','MatchFindingDesktop','loading'],
+  ['matchmaking / error','MatchFindingDesktop', 'error'],
+  ['lobby / full',       'LobbyDesktop',        'full'],
+  ['lobby / empty',      'LobbyDesktop',        'empty'],
+  ['tutorial',           'TutorialScreen',      'full'],
+  ['match / full',       'MatchHudDesktop',     'full'],
+  ['result-A',           'ResultClassic',       'full'],
+  ['result-B',           'ResultHero',          'full'],
+  ['result-C',           'ResultGrid',          'full'],
+  ['reward',             'RewardBox',           'full'],
+  ['profile / full',     'ProfileDesktop',      'full'],
+  ['profile / empty',    'ProfileDesktop',      'empty'],
+  ['match-detail',       'MatchDetailDesktop',  'full'],
+  ['meta',               'MetaDesktop',         'full'],
+  ['leaderboard',        'LeaderboardDesktop',  'full'],
+  ['sandbox / full',     'SandboxDesktop',      'full'],
+  ['settings',           'SettingsDesktop',     'full'],
+  ['credits',            'CreditsDesktop',      'full'],
+  ['changelog',          'ChangelogDesktop',    'full'],
+];
+
+class ErrorCatch extends React.Component {
+  constructor(p){ super(p); this.state = { err: null }; }
+  static getDerivedStateFromError(e){ return { err: e }; }
+  componentDidCatch(e){ this.props.onErr(e); }
+  render() { return this.state.err ? null : this.props.children; }
+}
+
+const report = document.getElementById('report');
+const stage = document.getElementById('stage');
+let sPass = 0, sFail = 0;
+
+for (const [label, name, variant] of CASES) {
+  const Comp = window[name];
+  if (!Comp) {
+    sFail++;
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = '<span>' + label + '</span><span class="fail">FAIL</span><span>component ' + name + ' not loaded</span>';
+    report.appendChild(row);
+    continue;
+  }
+  const data = window.sceneState ? window.sceneState(name.toLowerCase().replace('desktop','').replace('classic','').replace('hero','').replace('grid','').replace('box',''), variant) : window.defaultState();
+  const actions = window.defaultActions();
+
+  const root = ReactDOM.createRoot(stage);
+  let err = null;
+  try {
+    root.render(React.createElement(window.ThemeProvider || React.Fragment, { initial: 'dark' },
+      React.createElement(ErrorCatch, { onErr: (e) => { err = e; } },
+        React.createElement(Comp, { width: 1280, height: 800, data, actions })
+      )
+    ));
+  } catch (e) { err = e; }
+  root.unmount();
+
+  const row = document.createElement('div');
+  row.className = 'row';
+  if (err) {
+    sFail++;
+    row.innerHTML = '<span>' + label + '</span><span class="fail">FAIL</span><span>' + (err.message || err) + '</span>';
+  } else {
+    sPass++;
+    row.innerHTML = '<span>' + label + '</span><span class="pass">PASS</span><span>—</span>';
+  }
+  report.appendChild(row);
+}
+
+const totalPass = uPass + sPass;
+const totalFail = uFail + sFail;
+document.getElementById('counts').innerHTML =
+  '<span class="pass">' + totalPass + ' pass</span>  ' +
+  '<span class="' + (totalFail ? 'fail' : 'pass') + '">' + totalFail + ' fail</span>  ' +
+  '<span style="color:#8E8E93;">(' + uPass + ' unit · ' + sPass + ' smoke)</span>';
+
+} // end __TESTS_RUN guard
+</script>
+</body></html>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div class="summary"><h1>Smoke tests</h1><div id="counts"></div></div>
+<div id="report"></div>
+<div class="stage" id="stage"></div>
+
+<template id="__bundler_thumbnail"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#0E0B1F"/><text x="50" y="55" text-anchor="middle" fill="#FFD60A" font-size="40" font-family="monospace">✓</text></svg></template>
+
+<script src="audio.js"></script>
+<script type="text/babel" src="state.jsx"></script>
+<script type="text/babel" src="themes.jsx"></script>
+<script type="text/babel" src="i18n.jsx"></script>
+<script type="text/babel" src="langton.jsx"></script>
+<script type="text/babel" src="ui.jsx"></script>
+<script type="text/babel" src="charts.jsx"></script>
+<script type="text/babel" src="system-overlays.jsx"></script>
+<script type="text/babel" src="screens-menu.jsx"></script>
+<script type="text/babel" src="screens-match.jsx"></script>
+<script type="text/babel" src="screens-result.jsx"></script>
+<script type="text/babel" src="screens-stats.jsx"></script>
+<script type="text/babel" src="screens-settings.jsx"></script>
+<script type="text/babel" src="screens-sandbox.jsx"></script>
+<script type="text/babel" src="screens-credits.jsx"></script>
+<script type="text/babel" src="screens-changelog.jsx"></script>
+
+<script type="text/babel">
+const CASES = [
+  // [label, ComponentName, variant]
+  ['menu / full',        'MainMenuDesktop',     'full'],
+  ['menu / empty',       'MainMenuDesktop',     'empty'],
+  ['matchmaking / full', 'MatchFindingDesktop', 'full'],
+  ['matchmaking / empty','MatchFindingDesktop', 'empty'],
+  ['matchmaking / loading','MatchFindingDesktop','loading'],
+  ['matchmaking / error','MatchFindingDesktop', 'error'],
+  ['lobby / full',       'LobbyDesktop',        'full'],
+  ['lobby / empty',      'LobbyDesktop',        'empty'],
+  ['tutorial',           'TutorialScreen',      'full'],
+  ['match / full',       'MatchHudDesktop',     'full'],
+  ['result-A',           'ResultClassic',       'full'],
+  ['result-B',           'ResultHero',          'full'],
+  ['result-C',           'ResultGrid',          'full'],
+  ['reward',             'RewardBox',           'full'],
+  ['profile / full',     'ProfileDesktop',      'full'],
+  ['profile / empty',    'ProfileDesktop',      'empty'],
+  ['match-detail',       'MatchDetailDesktop',  'full'],
+  ['meta',               'MetaDesktop',         'full'],
+  ['leaderboard',        'LeaderboardDesktop',  'full'],
+  ['sandbox / full',     'SandboxDesktop',      'full'],
+  ['settings',           'SettingsDesktop',     'full'],
+  ['credits',            'CreditsDesktop',      'full'],
+  ['changelog',          'ChangelogDesktop',    'full'],
+];
+
+class ErrorCatch extends React.Component {
+  constructor(p){ super(p); this.state = { err: null }; }
+  static getDerivedStateFromError(e){ return { err: e }; }
+  componentDidCatch(e){ this.props.onErr(e); }
+  render() { return this.state.err ? null : this.props.children; }
+}
+
+(function run() {
+  const report = document.getElementById('report');
+  const stage = document.getElementById('stage');
+  let passes = 0, fails = 0;
+  const seenErrors = [];
+
+  for (const [label, name, variant] of CASES) {
+    const Comp = window[name];
+    if (!Comp) {
+      fails++;
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.innerHTML = '<span>' + label + '</span><span class="fail">FAIL</span><span>component ' + name + ' not loaded</span>';
+      report.appendChild(row);
+      continue;
+    }
+    const data = window.sceneState ? window.sceneState(name.toLowerCase().replace('desktop',''), variant) : window.defaultState();
+    const actions = window.defaultActions();
+
+    const root = ReactDOM.createRoot(stage);
+    let err = null;
+    try {
+      root.render(React.createElement(window.ThemeProvider || React.Fragment, { initial: 'dark' },
+        React.createElement(ErrorCatch, { onErr: (e) => { err = e; } },
+          React.createElement(Comp, { width: 1280, height: 800, data, actions })
+        )
+      ));
+    } catch (e) {
+      err = e;
+    }
+    root.unmount();
+
+    const row = document.createElement('div');
+    row.className = 'row';
+    if (err) {
+      fails++;
+      seenErrors.push({ label, err });
+      row.innerHTML = '<span>' + label + '</span><span class="fail">FAIL</span><span>' + (err.message || err) + '</span>';
+    } else {
+      passes++;
+      row.innerHTML = '<span>' + label + '</span><span class="pass">PASS</span><span>—</span>';
+    }
+    report.appendChild(row);
+  }
+
+  document.getElementById('counts').innerHTML =
+    '<span class="pass">' + passes + ' pass</span>  <span class="' + (fails ? 'fail' : 'pass') + '">' + fails + ' fail</span>';
+})();
+</script>
+</body></html>

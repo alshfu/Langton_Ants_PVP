@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Langton Arena · Storybook</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" />
+  <style>
+    :root {
+      --bg: #0A081A; --panel: #16122A; --line: rgba(255,255,255,.06);
+      --fg: #F5F5F7; --muted: #8E8E93; --accent: #FFD60A;
+    }
+    * { box-sizing: border-box; }
+    html, body, #root { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--fg); }
+    body { font-family: 'Inter', system-ui, sans-serif; overflow: hidden; }
+    button { font-family: inherit; }
+    .sb-shell { display: grid; grid-template-columns: 260px 1fr; height: 100vh; }
+    .sb-side {
+      background: #0E0B1F; border-right: 1px solid var(--line);
+      padding: 20px 14px; overflow: auto;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .sb-side h1 { font-size: 14px; margin: 0 8px 16px; letter-spacing: -0.3px; display: flex; gap: 6px; align-items: center; }
+    .sb-side h1 .dot { color: var(--accent); }
+    .sb-eyebrow {
+      font-family: 'JetBrains Mono', monospace; font-size: 9px;
+      color: #5A5870; letter-spacing: 2px; text-transform: uppercase;
+      padding: 10px 8px 4px;
+    }
+    .sb-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 10px; border-radius: 6px;
+      color: var(--muted); cursor: pointer; font-size: 12px;
+      background: transparent; border: none; text-align: left; width: 100%;
+      transition: all .14s ease-out;
+      border-left: 2px solid transparent;
+    }
+    .sb-item:hover { background: rgba(255,255,255,.03); color: var(--fg); }
+    .sb-item.active {
+      background: rgba(255,214,10,.08); color: var(--accent);
+      border-left-color: var(--accent); font-weight: 600;
+    }
+    .sb-item .badge {
+      margin-left: auto; padding: 1px 6px; border-radius: 3px;
+      font-family: 'JetBrains Mono', monospace; font-size: 9px;
+      letter-spacing: .5px; text-transform: uppercase;
+    }
+    .sb-stage {
+      display: flex; flex-direction: column; min-height: 0; min-width: 0;
+      background:
+        radial-gradient(circle at 50% 50%, rgba(255,214,10,.03), transparent 60%),
+        var(--bg);
+    }
+    .sb-header {
+      padding: 16px 28px; border-bottom: 1px solid var(--line);
+      display: flex; align-items: center; gap: 18px;
+      background: rgba(14,11,31,.6); backdrop-filter: blur(8px);
+    }
+    .sb-title { font-size: 17px; font-weight: 700; letter-spacing: -.2px; }
+    .sb-subtitle { font-size: 11px; color: var(--muted); }
+    .sb-variants {
+      margin-left: auto; display: flex; gap: 4px;
+      background: rgba(255,255,255,.03); border-radius: 8px; padding: 3px;
+      border: 1px solid var(--line);
+    }
+    .sb-var {
+      padding: 6px 12px; border-radius: 5px; cursor: pointer; border: none;
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+      letter-spacing: .8px; text-transform: uppercase; font-weight: 600;
+      background: transparent; color: var(--muted);
+    }
+    .sb-var.active { background: var(--accent); color: #0E0B1F; }
+    .sb-stage-body {
+      flex: 1; overflow: auto; min-height: 0; padding: 28px;
+      display: flex; justify-content: center; align-items: flex-start;
+    }
+    .sb-artboard {
+      box-shadow: 0 24px 80px rgba(0,0,0,.4);
+      border-radius: 12px; overflow: hidden;
+      border: 1px solid var(--line);
+      transform-origin: top center;
+    }
+    .sb-meta {
+      padding: 12px 28px; border-top: 1px solid var(--line);
+      display: flex; gap: 24px;
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+      color: #5A5870; letter-spacing: 1px;
+    }
+    .sb-meta b { color: var(--accent); font-weight: 600; }
+    .sb-empty-hint {
+      display: inline-block; padding: 1px 6px; border-radius: 3px;
+      font-family: 'JetBrains Mono', monospace; font-size: 9px;
+      letter-spacing: .5px; text-transform: uppercase;
+    }
+  </style>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <template id="__bundler_thumbnail">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+      <rect width="100" height="100" fill="#0E0B1F"/>
+      <rect x="14" y="14" width="32" height="32" rx="4" fill="#FFD60A"/>
+      <rect x="54" y="14" width="32" height="32" rx="4" fill="#4DA8FF" opacity=".5"/>
+      <rect x="14" y="54" width="32" height="32" rx="4" fill="#FF5470" opacity=".5"/>
+      <rect x="54" y="54" width="32" height="32" rx="4" fill="#39D98A" opacity=".5"/>
+    </svg>
+  </template>
+
+  <script src="audio.js"></script>
+  <script type="text/babel" src="state.jsx"></script>
+  <script type="text/babel" src="themes.jsx"></script>
+  <script type="text/babel" src="i18n.jsx"></script>
+  <script type="text/babel" src="langton.jsx"></script>
+  <script type="text/babel" src="ui.jsx"></script>
+  <script type="text/babel" src="charts.jsx"></script>
+  <script type="text/babel" src="system-overlays.jsx"></script>
+  <script type="text/babel" src="screens-menu.jsx"></script>
+  <script type="text/babel" src="screens-match.jsx"></script>
+  <script type="text/babel" src="screens-result.jsx"></script>
+  <script type="text/babel" src="screens-stats.jsx"></script>
+  <script type="text/babel" src="screens-settings.jsx"></script>
+  <script type="text/babel" src="screens-sandbox.jsx"></script>
+  <script type="text/babel" src="screens-credits.jsx"></script>
+  <script type="text/babel" src="screens-changelog.jsx"></script>
+
+  <script type="text/babel">
+    const SCREENS = [
+      { id: 'menu',        label: 'Main menu',     component: 'MainMenuDesktop',      width: 1280, height: 800, variants: ['full', 'empty'] },
+      { id: 'matchmaking', label: 'Matchmaking',   component: 'FindingDesktop',       width: 1280, height: 800, variants: ['full', 'empty', 'loading', 'error'] },
+      { id: 'lobby',       label: 'Lobby',         component: 'LobbyDesktop',         width: 1280, height: 800, variants: ['full', 'empty'] },
+      { id: 'tutorial',    label: 'Tutorial',      component: 'TutorialScreen',       width: 1280, height: 800, variants: ['full'] },
+      { id: 'match',       label: 'Match',         component: 'MatchHUDDesktop',      width: 1280, height: 800, variants: ['full'] },
+      { id: 'result',      label: 'Result',        component: 'ResultDesktop',        width: 1280, height: 800, variants: ['full', 'empty'] },
+      { id: 'reward',      label: 'Reward',        component: 'RewardScreen',         width: 1280, height: 800, variants: ['full'] },
+      { id: 'profile',     label: 'Profile',       component: 'ProfileDesktop',       width: 1280, height: 800, variants: ['full', 'empty'] },
+      { id: 'history',     label: 'Match history', component: 'MatchDetailDesktop',   width: 1280, height: 800, variants: ['full'] },
+      { id: 'meta',        label: 'Meta',          component: 'MetaDesktop',          width: 1280, height: 800, variants: ['full'] },
+      { id: 'leaderboard', label: 'Leaderboard',   component: 'LeaderboardDesktop',   width: 1280, height: 800, variants: ['full'] },
+      { id: 'sandbox',     label: 'Sandbox',       component: 'SandboxDesktop',       width: 1280, height: 800, variants: ['full', 'empty'] },
+      { id: 'settings',    label: 'Settings',      component: 'SettingsDesktop',      width: 1280, height: 800, variants: ['full'] },
+      { id: 'credits',     label: 'Credits',       component: 'CreditsDesktop',       width: 1280, height: 800, variants: ['full'] },
+      { id: 'changelog',   label: 'Changelog',     component: 'ChangelogDesktop',     width: 1280, height: 800, variants: ['full'] },
+    ];
+
+    const GROUPS = [
+      { id: 'flow',     label: 'Match flow',  ids: ['menu', 'matchmaking', 'lobby', 'tutorial', 'match', 'result', 'reward'] },
+      { id: 'stats',    label: 'Stats suite', ids: ['profile', 'history', 'meta', 'leaderboard'] },
+      { id: 'system',   label: 'System',      ids: ['settings', 'sandbox', 'credits', 'changelog'] },
+    ];
+
+    const VARIANT_TINT = {
+      full:    { color: '#39D98A', bg: 'rgba(57,217,138,.12)'  },
+      empty:   { color: '#8E8E93', bg: 'rgba(142,142,147,.14)' },
+      loading: { color: '#4DA8FF', bg: 'rgba(77,168,255,.12)'  },
+      error:   { color: '#FF453A', bg: 'rgba(255,69,58,.12)'   },
+    };
+
+    function VariantBadge({ variant }) {
+      const v = VARIANT_TINT[variant] || VARIANT_TINT.full;
+      return <span className="sb-empty-hint" style={{ background: v.bg, color: v.color }}>{variant}</span>;
+    }
+
+    function Storybook() {
+      const [activeId, setActiveId] = React.useState('menu');
+      const [variant, setVariant]   = React.useState('full');
+      const [scale, setScale]       = React.useState(1);
+
+      const stageRef = React.useRef(null);
+
+      const active = SCREENS.find((s) => s.id === activeId);
+      const availableVariants = active.variants;
+      const Component = window[active.component];
+
+      const data    = window.sceneState ? window.sceneState(activeId, variant) : window.defaultState();
+      const actions = window.defaultActions();
+
+      // Fit-to-stage auto-scale
+      React.useEffect(() => {
+        const fit = () => {
+          if (!stageRef.current) return;
+          const r = stageRef.current.getBoundingClientRect();
+          const sx = (r.width  - 56) / active.width;
+          const sy = (r.height - 56) / active.height;
+          setScale(Math.min(1, sx, sy));
+        };
+        fit();
+        const ro = new ResizeObserver(fit);
+        if (stageRef.current) ro.observe(stageRef.current);
+        return () => ro.disconnect();
+      }, [activeId]);
+
+      // Reset variant to first available when switching screen
+      React.useEffect(() => {
+        if (!availableVariants.includes(variant)) setVariant(availableVariants[0]);
+      }, [activeId]);
+
+      return (
+        <div className="sb-shell">
+          {/* Sidebar */}
+          <aside className="sb-side">
+            <h1>
+              <svg width="16" height="16" viewBox="0 0 28 28">
+                <rect x="2"  y="2"  width="11" height="11" rx="1.5" fill="#F5F5F7" opacity=".22" />
+                <rect x="15" y="2"  width="11" height="11" rx="1.5" fill="#F5F5F7" opacity=".42" />
+                <rect x="2"  y="15" width="11" height="11" rx="1.5" fill="#F5F5F7" opacity=".62" />
+                <rect x="15" y="15" width="11" height="11" rx="1.5" fill="#FFD60A" />
+              </svg>
+              LANGTON<span className="dot">·</span>ARENA
+              <span style={{ marginLeft: 'auto', fontFamily: 'JetBrains Mono, monospace', fontSize: 9, color: '#5A5870', letterSpacing: 1.4 }}>STORYBOOK</span>
+            </h1>
+            {GROUPS.map((g) => (
+              <React.Fragment key={g.id}>
+                <div className="sb-eyebrow">{g.label}</div>
+                {g.ids.map((id) => {
+                  const s = SCREENS.find((x) => x.id === id);
+                  if (!s) return null;
+                  return (
+                    <button key={id}
+                      className={`sb-item${activeId === id ? ' active' : ''}`}
+                      onClick={() => setActiveId(id)}>
+                      {s.label}
+                      <span className="badge" style={{ background: 'rgba(255,255,255,.06)', color: '#8E8E93' }}>
+                        {s.variants.length}
+                      </span>
+                    </button>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+            <div style={{ flex: 1 }} />
+            <a href="launcher.html" style={{
+              padding: '8px 10px', fontSize: 11, color: '#8E8E93',
+              textDecoration: 'none', fontFamily: 'JetBrains Mono, monospace',
+              letterSpacing: 1, textTransform: 'uppercase', borderTop: '1px solid var(--line)',
+            }}>← back to launcher</a>
+          </aside>
+
+          {/* Stage */}
+          <div className="sb-stage">
+            <div className="sb-header">
+              <div>
+                <div className="sb-title">{active.label} <VariantBadge variant={variant} /></div>
+                <div className="sb-subtitle">
+                  {active.component} · {active.width}×{active.height} ·
+                  state: <code style={{ color: '#FFD60A' }}>{`sceneState('${activeId}', '${variant}')`}</code>
+                </div>
+              </div>
+              <div className="sb-variants">
+                {availableVariants.map((v) => (
+                  <button key={v}
+                    className={`sb-var${variant === v ? ' active' : ''}`}
+                    onClick={() => setVariant(v)}>{v}</button>
+                ))}
+              </div>
+            </div>
+
+            <div className="sb-stage-body" ref={stageRef}>
+              <div className="sb-artboard" style={{
+                width: active.width, height: active.height,
+                transform: `scale(${scale})`,
+                marginBottom: scale < 1 ? -(active.height * (1 - scale)) : 0,
+              }}>
+                {Component ? <Component
+                  key={`${activeId}-${variant}`}
+                  width={active.width}
+                  height={active.height}
+                  data={data}
+                  actions={actions}
+                /> : <div style={{ padding: 40, color: '#8E8E93' }}>
+                  Component <code>{active.component}</code> not loaded yet.
+                </div>}
+              </div>
+            </div>
+
+            <div className="sb-meta">
+              <span>screen: <b>{activeId}</b></span>
+              <span>variant: <b>{variant}</b></span>
+              <span>scale: <b>{(scale * 100).toFixed(0)}%</b></span>
+              <span>actions: <b>{Object.keys(actions).length}</b> noops</span>
+              <span style={{ marginLeft: 'auto' }}>
+                drop-in: pass <b>{`data={appState}`}</b> and <b>{`actions={handlers}`}</b>
+              </span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<Storybook />);
+  </script>
+</body>
+</html>

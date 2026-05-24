@@ -1,0 +1,19 @@
+# infra/k8s/matchmaker.yaml
+# Matchmaker — один на регион. replicas=1, leader election не нужен.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: matchmaker }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: matchmaker } }
+  template:
+    metadata: { labels: { app: matchmaker } }
+    spec:
+      containers:
+        - name: matchmaker
+          image: ghcr.io/langton/matchmaker:latest
+          envFrom: [{ secretRef: { name: arena-secrets } }, { configMapRef: { name: arena-config } }]
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits:   { cpu: 500m, memory: 256Mi }
