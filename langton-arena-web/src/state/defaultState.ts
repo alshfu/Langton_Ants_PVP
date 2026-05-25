@@ -1,21 +1,56 @@
 // src/state/defaultState.ts
 
-import type { AppState, SandboxConfig } from '@core/contract/state';
+import type { AppState, SandboxConfig, SandboxRuntimeState, SandboxPlayerConfig } from '@core/contract/state';
 import { PLAYER_PALETTE, GAME_LIMITS } from '@core/shared/constants';
+import { generateAnts } from '@lib/spawnPatterns';
+
+function defaultPlayer(idx: number, ruleId: string): SandboxPlayerConfig {
+  const palette = PLAYER_PALETTE[idx % PLAYER_PALETTE.length]!;
+  return {
+    id: `player_${idx}`,
+    name: `P${idx + 1}`,
+    color: palette.hex,
+    ruleId,
+    startHp: 3,
+    spawnPattern: 'radial',
+    antCount: 3,
+    ants: [],
+  };
+}
 
 export function defaultSandbox(): SandboxConfig {
+  const W = 80, H = 60, seed = 42;
+
+  const players: SandboxPlayerConfig[] = [
+    defaultPlayer(0, 'classic'),
+    defaultPlayer(1, 'spiral'),
+    defaultPlayer(2, 'flower'),
+    defaultPlayer(3, 'reverse'),
+  ];
+
+  // Auto-populate ants по spawnPattern каждого игрока
+  players.forEach((p, i) => {
+    p.ants = generateAnts(p.spawnPattern, {
+      playerIndex: i,
+      totalPlayers: players.length,
+      fieldW: W,
+      fieldH: H,
+      antCount: p.antCount,
+      seed,
+    });
+  });
+
   return {
-    width: 80,
-    height: 60,
+    width: W, height: H,
     topology: 'torus',
     bgColor: '#0A081A',
+    showGrid: false,
 
-    players: [
-      { color: PLAYER_PALETTE[0]!.hex, antCount: 3, ruleId: 'classic', startHp: 3, spawnPattern: 'radial' },
-      { color: PLAYER_PALETTE[1]!.hex, antCount: 3, ruleId: 'spiral',  startHp: 3, spawnPattern: 'radial' },
-      { color: PLAYER_PALETTE[2]!.hex, antCount: 3, ruleId: 'flower',  startHp: 3, spawnPattern: 'radial' },
-      { color: PLAYER_PALETTE[3]!.hex, antCount: 3, ruleId: 'reverse', startHp: 3, spawnPattern: 'radial' },
-    ],
+    players,
+
+    hpEnabled: true,
+    damageCapEnabled: true,
+    collisionCooldownTicks: GAME_LIMITS.COLLISION_COOLDOWN_TICKS,
 
     birthEnabled: true,
     birthMinNeighbors: 3,
@@ -24,23 +59,36 @@ export function defaultSandbox(): SandboxConfig {
     hybridChance: 0.10,
     wildBirthChance: 0.03,
 
-    hpEnabled: true,
-    collisionCooldownTicks: GAME_LIMITS.COLLISION_COOLDOWN_TICKS,
-
-    baseTps: 15,
-    speedMultiplier: 1,
-
-    showGrid: false,
     showGlow: true,
     showTrails: true,
     showHpDots: true,
+    showDirectionArrows: false,
     antScale: 0.9,
+    trailDecay: 0.94,
 
-    seed: 42,
+    baseTps: 15,
+    speedMultiplier: 1,
+    seed,
+  };
+}
+
+export function defaultRuntimeState(activePlayerId: string | null): SandboxRuntimeState {
+  return {
+    mode: 'edit',
+    paused: true,
+    activePlayerId,
+    selectedAntId: null,
+    liveStats: {
+      tick: 0,
+      aliveByPlayer: {},
+      deathsByPlayer: {},
+      birthsByPlayer: {},
+    },
   };
 }
 
 export function defaultState(): AppState {
+  const sandbox = defaultSandbox();
   return {
     currentScreen: 'menu',
     user: {
@@ -52,6 +100,8 @@ export function defaultState(): AppState {
     },
     locale: 'en',
     themeId: 'dark',
-    sandbox: defaultSandbox(),
+    sandbox,
+    sandboxRuntime: defaultRuntimeState(sandbox.players[0]?.id ?? null),
+    userPresets: [],
   };
 }

@@ -1,6 +1,6 @@
 // src/ui/Slider.tsx
 // Простой range-input в стиле проекта.
-import React from 'react';
+
 import { useTheme } from '@theme/ThemeProvider';
 
 export function Slider({

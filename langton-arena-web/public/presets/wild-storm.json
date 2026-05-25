@@ -1,0 +1,134 @@
+{
+  "id": "wild-storm",
+  "name": "Wild Storm",
+  "category": "builtin",
+  "description": "High wild + hybrid chance, see neutral chaos emerge",
+  "tags": [
+    "wild",
+    "demo"
+  ],
+  "author": "langton-arena",
+  "config": {
+    "width": 80,
+    "height": 60,
+    "topology": "torus",
+    "bgColor": "#0A081A",
+    "showGrid": false,
+    "players": [
+      {
+        "id": "player_0",
+        "name": "P1",
+        "color": "#FF5470",
+        "ruleId": "classic",
+        "startHp": 3,
+        "spawnPattern": "radial",
+        "antCount": 3,
+        "ants": [
+          {
+            "id": "p0_a0",
+            "x": 54,
+            "y": 14,
+            "dir": 0,
+            "ruleOverride": null
+          },
+          {
+            "id": "p0_a1",
+            "x": 61,
+            "y": 30,
+            "dir": 1,
+            "ruleOverride": null
+          },
+          {
+            "id": "p0_a2",
+            "x": 54,
+            "y": 46,
+            "dir": 2,
+            "ruleOverride": null
+          }
+        ]
+      },
+      {
+        "id": "player_1",
+        "name": "P2",
+        "color": "#4DA8FF",
+        "ruleId": "spiral",
+        "startHp": 3,
+        "spawnPattern": "radial",
+        "antCount": 3,
+        "ants": [
+          {
+            "id": "p1_a0",
+            "x": 46,
+            "y": 50,
+            "dir": 0,
+            "ruleOverride": null
+          },
+          {
+            "id": "p1_a1",
+            "x": 30,
+            "y": 48,
+            "dir": 1,
+            "ruleOverride": null
+          },
+          {
+            "id": "p1_a2",
+            "x": 19,
+            "y": 34,
+            "dir": 2,
+            "ruleOverride": null
+          }
+        ]
+      },
+      {
+        "id": "player_2",
+        "name": "P3",
+        "color": "#39D98A",
+        "ruleId": "flower",
+        "startHp": 3,
+        "spawnPattern": "radial",
+        "antCount": 3,
+        "ants": [
+          {
+            "id": "p2_a0",
+            "x": 19,
+            "y": 26,
+            "dir": 0,
+            "ruleOverride": null
+          },
+          {
+            "id": "p2_a1",
+            "x": 29,
+            "y": 12,
+            "dir": 1,
+            "ruleOverride": null
+          },
+          {
+            "id": "p2_a2",
+            "x": 46,
+            "y": 10,
+            "dir": 2,
+            "ruleOverride": null
+          }
+        ]
+      }
+    ],
+    "hpEnabled": true,
+    "damageCapEnabled": true,
+    "collisionCooldownTicks": 5,
+    "birthEnabled": true,
+    "birthMinNeighbors": 2,
+    "birthCooldownTicks": 30,
+    "maxAntsPerPlayer": 20,
+    "hybridChance": 0.4,
+    "wildBirthChance": 0.3,
+    "showGlow": true,
+    "showTrails": true,
+    "showHpDots": true,
+    "showDirectionArrows": false,
+    "antScale": 0.9,
+    "trailDecay": 0.94,
+    "baseTps": 15,
+    "speedMultiplier": 1,
+    "seed": 500
+  }
+}

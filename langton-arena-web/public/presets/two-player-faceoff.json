@@ -1,0 +1,102 @@
+{
+  "id": "two-player-faceoff",
+  "name": "2-Player Face-Off",
+  "category": "builtin",
+  "description": "Classic vs Spiral, opposite sides — beginner-friendly duel",
+  "tags": [
+    "beginner",
+    "duel"
+  ],
+  "author": "langton-arena",
+  "config": {
+    "width": 60,
+    "height": 40,
+    "topology": "torus",
+    "bgColor": "#0A081A",
+    "showGrid": false,
+    "players": [
+      {
+        "id": "player_0",
+        "name": "P1",
+        "color": "#FF5470",
+        "ruleId": "classic",
+        "startHp": 3,
+        "spawnPattern": "radial",
+        "antCount": 3,
+        "ants": [
+          {
+            "id": "p0_a0",
+            "x": 34,
+            "y": 7,
+            "dir": 0,
+            "ruleOverride": null
+          },
+          {
+            "id": "p0_a1",
+            "x": 44,
+            "y": 20,
+            "dir": 1,
+            "ruleOverride": null
+          },
+          {
+            "id": "p0_a2",
+            "x": 34,
+            "y": 33,
+            "dir": 2,
+            "ruleOverride": null
+          }
+        ]
+      },
+      {
+        "id": "player_1",
+        "name": "P2",
+        "color": "#4DA8FF",
+        "ruleId": "spiral",
+        "startHp": 3,
+        "spawnPattern": "radial",
+        "antCount": 3,
+        "ants": [
+          {
+            "id": "p1_a0",
+            "x": 26,
+            "y": 33,
+            "dir": 0,
+            "ruleOverride": null
+          },
+          {
+            "id": "p1_a1",
+            "x": 16,
+            "y": 20,
+            "dir": 1,
+            "ruleOverride": null
+          },
+          {
+            "id": "p1_a2",
+            "x": 26,
+            "y": 7,
+            "dir": 2,
+            "ruleOverride": null
+          }
+        ]
+      }
+    ],
+    "hpEnabled": true,
+    "damageCapEnabled": true,
+    "collisionCooldownTicks": 5,
+    "birthEnabled": true,
+    "birthMinNeighbors": 3,
+    "birthCooldownTicks": 80,
+    "maxAntsPerPlayer": 12,
+    "hybridChance": 0.1,
+    "wildBirthChance": 0.03,
+    "showGlow": true,
+    "showTrails": true,
+    "showHpDots": true,
+    "showDirectionArrows": false,
+    "antScale": 0.9,
+    "trailDecay": 0.94,
+    "baseTps": 15,
+    "speedMultiplier": 1,
+    "seed": 100
+  }
+}

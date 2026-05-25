@@ -1,85 +1,86 @@
 // src/screens/SandboxScreen.tsx
 //
-// Полностью рабочая песочница: live-симуляция Лэнгтона, ползунки управляют параметрами,
-// можно паузить, сбрасывать, менять seed.
+// Главный экран Sandbox v2 — Day 3 (финал этапа 1).
 //
-// Layout: слева — большая canvas-область с полем; справа — панель настроек.
-// Снизу — transport bar (play/pause/step/reset, speed).
+// Layout: top bar | (canvas | tab strip | tab content) | transport bar.
+//
+// Edit mode:
+//   - Клик ЛКМ → addAnt активного игрока (или select если на муравье)
+//   - Shift+клик → removeAnt
+//   - Колесо → крутит направление муравья под курсором
+//   - ПКМ → поворот на 90° по часовой
+//
+// Run mode:
+//   - Симуляция тикает
+//   - Клик по канвасу — не делает ничего (для отладки в будущем — выделять)
+//
+// Валидация перед Run:
+//   - Минимум 2 игрока
+//   - Минимум 1 муравей у каждого игрока
+//   - Иначе показываем toast и не запускаем
 
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { useTheme } from '@theme/ThemeProvider';
 import { useT } from '@i18n/I18nProvider';
 import { useAppState } from '@state/AppStateProvider';
 import { LangtonField } from '@components/LangtonField';
 import { LA_RULES } from '@core/langton/rules';
-import { RULES_REGISTRY } from '@core/shared/constants';
 import { Button } from '@ui/Button';
 import { Eyebrow } from '@ui/Eyebrow';
-import { Mono } from '@ui/Mono';
 import { Chip } from '@ui/Chip';
-import { Slider } from '@ui/Slider';
-import { Toggle } from '@ui/Toggle';
 
 import type { Ant, BirthConfig, SimState, StepEvents } from '@core/langton/engine';
+import { TabStrip, type SandboxTabId } from './sandbox/TabStrip';
+import { PlayersTab } from './sandbox/PlayersTab';
+import { AntsTab } from './sandbox/AntsTab';
+import { FieldTab } from './sandbox/FieldTab';
+import { CombatTab } from './sandbox/CombatTab';
+import { BirthTab } from './sandbox/BirthTab';
+import { VisualTab } from './sandbox/VisualTab';
+import { PresetsTab } from './sandbox/PresetsTab';
+import { TransportBar } from './sandbox/TransportBar';
 
 export function SandboxScreen() {
   const { tokens: T } = useTheme();
   const t = useT();
-  const { state, patchSandbox, resetSandbox, setScreen } = useAppState();
+  const { state, setScreen, sandbox: sx } = useAppState();
   const cfg = state.sandbox;
+  const rt = state.sandboxRuntime;
 
-  const [paused, setPaused] = useState(false);
-  const [liveStats, setLiveStats] = useState({ tick: 0, alive: 0, deaths: 0, collisions: 0, births: 0 });
-  const counters = useRef({ deaths: 0, collisions: 0, births: 0 });
+  const [activeTab, setActiveTab] = useState<SandboxTabId>('presets');
+  const [statsTick, setStatsTick] = useState(0);
+  const [stepSignal, setStepSignal] = useState(0);
+  const [toast, setToast] = useState<{ text: string; kind: 'info' | 'warn' | 'err' } | null>(null);
 
-  // Регенерируем начальные муравьи когда меняются параметры посева
-  const ants = useMemo<Ant[]>(() => {
+  const showToast = useCallback((text: string, kind: 'info' | 'warn' | 'err' = 'info') => {
+    setToast({ text, kind });
+    setTimeout(() => setToast(null), 2800);
+  }, []);
+
+  // Конвертация SandboxAntConfig[] → Ant[] для движка
+  const engineAnts = useMemo<Ant[]>(() => {
     const list: Ant[] = [];
-    let s = cfg.seed || 1;
-    const rand = (): number => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
-
     cfg.players.forEach((p, pi) => {
-      const rulePattern = LA_RULES[p.ruleId] ?? LA_RULES.classic!;
-      for (let i = 0; i < p.antCount; i++) {
-        let x = 0, y = 0;
-        if (p.spawnPattern === 'corner') {
-          const corner = pi % 4;
-          x = corner % 2 === 0 ? 2 + i : cfg.width - 3 - i;
-          y = corner < 2     ? 2 + i : cfg.height - 3 - i;
-        } else if (p.spawnPattern === 'center') {
-          x = Math.floor(cfg.width / 2) + (i - p.antCount / 2);
-          y = Math.floor(cfg.height / 2);
-        } else if (p.spawnPattern === 'cluster') {
-          const cx = (pi + 1) * cfg.width / (cfg.players.length + 1);
-          x = Math.floor(cx + (rand() - 0.5) * 6);
-          y = Math.floor(cfg.height / 2 + (rand() - 0.5) * 6);
-        } else if (p.spawnPattern === 'random') {
-          x = Math.floor(rand() * cfg.width);
-          y = Math.floor(rand() * cfg.height);
-        } else {
-          const angle = ((pi * p.antCount + i) / (cfg.players.length * p.antCount)) * Math.PI * 2;
-          const radius = Math.min(cfg.width, cfg.height) * 0.35;
-          x = Math.floor(cfg.width / 2 + Math.cos(angle) * radius);
-          y = Math.floor(cfg.height / 2 + Math.sin(angle) * radius);
-        }
-        x = Math.max(0, Math.min(cfg.width - 1, x));
-        y = Math.max(0, Math.min(cfg.height - 1, y));
+      const playerRule = LA_RULES[p.ruleId] ?? LA_RULES.classic!;
+      p.ants.forEach((a) => {
+        const rule = a.ruleOverride ? (LA_RULES[a.ruleOverride] ?? playerRule) : playerRule;
         list.push({
-          id: `p${pi}_a${i}`,
+          id: a.id,
           owner: pi,
-          x, y,
-          dir: (pi % 4) as 0 | 1 | 2 | 3,
-          rule: rulePattern,
+          x: a.x,
+          y: a.y,
+          dir: a.dir,
+          rule,
           hp: p.startHp,
           maxHp: p.startHp,
           lastDamageTick: -9999,
           bornAt: 0,
         });
-      }
+      });
     });
     return list;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(cfg.players), cfg.width, cfg.height, cfg.seed]);
+  }, [JSON.stringify(cfg.players), cfg.seed]);
 
   const palette = useMemo(() => cfg.players.map((p) => p.color), [cfg.players]);
 
@@ -96,42 +97,137 @@ export function SandboxScreen() {
   }, [cfg.birthEnabled, cfg.birthMinNeighbors, cfg.birthCooldownTicks, cfg.maxAntsPerPlayer, cfg.hybridChance, cfg.wildBirthChance]);
 
   const effectiveTps = cfg.baseTps * cfg.speedMultiplier;
+  const cellSize = Math.max(3, Math.min(14, Math.floor(800 / cfg.width)));
+  const totalAnts = cfg.players.reduce((n, p) => n + p.ants.length, 0);
 
-  // Размер ячейки автоматически по доступной ширине canvas-области
-  const cellSize = Math.max(4, Math.min(16, Math.floor(900 / cfg.width)));
+  // ─── Edit-mode handlers ─────────────────────────────────────────────────
 
-  const onEvents = useCallback((ev: StepEvents) => {
-    counters.current.deaths     += ev.deaths.length;
-    counters.current.collisions += ev.collisions.length;
-    counters.current.births     += ev.births.length;
-  }, []);
-
-  const onTick = useCallback((s: SimState) => {
-    if (s.tick % 10 === 0) {
-      const alive = s.ants.filter((a) => !a.dead).length;
-      setLiveStats({
-        tick: s.tick, alive,
-        deaths: counters.current.deaths,
-        collisions: counters.current.collisions,
-        births: counters.current.births,
-      });
+  /** Найти муравья в клетке (x, y) среди ВСЕХ игроков. */
+  const findAntAt = useCallback((x: number, y: number) => {
+    for (const p of cfg.players) {
+      for (const a of p.ants) {
+        if (a.x === x && a.y === y) return { ant: a, playerId: p.id };
+      }
     }
-  }, []);
+    return null;
+  }, [cfg.players]);
 
-  const onReset = () => {
-    counters.current = { deaths: 0, collisions: 0, births: 0 };
-    setLiveStats({ tick: 0, alive: ants.length, deaths: 0, collisions: 0, births: 0 });
-    // Меняем seed чтобы пересоздать sim
-    patchSandbox({ seed: cfg.seed + 1 });
+  const onCanvasClick = useCallback((x: number, y: number, mods: { shift: boolean }) => {
+    const found = findAntAt(x, y);
+    if (mods.shift) {
+      if (found) sx.removeAnt(found.ant.id);
+      return;
+    }
+    if (found) {
+      // Select + switch active to its owner
+      sx.setActivePlayer(found.playerId);
+      sx.setSelectedAnt(found.ant.id);
+      return;
+    }
+    // Empty cell → place new ant of active player
+    const activeId = rt.activePlayerId ?? cfg.players[0]?.id;
+    if (!activeId) return;
+    sx.addAnt(activeId, { x, y, dir: 0, ruleOverride: null });
+  }, [findAntAt, sx, rt.activePlayerId, cfg.players]);
+
+  const onCanvasContextMenu = useCallback((x: number, y: number) => {
+    const found = findAntAt(x, y);
+    if (!found) return;
+    sx.patchAnt(found.ant.id, { dir: ((found.ant.dir + 1) & 3) as 0 | 1 | 2 | 3 });
+  }, [findAntAt, sx]);
+
+  const onCanvasWheel = useCallback((x: number, y: number, deltaY: number) => {
+    const found = findAntAt(x, y);
+    if (!found) return;
+    const delta = deltaY > 0 ? 1 : 3; // +1 cw, -1 (=+3) ccw
+    sx.patchAnt(found.ant.id, { dir: ((found.ant.dir + delta) & 3) as 0 | 1 | 2 | 3 });
+  }, [findAntAt, sx]);
+
+  // ─── Run mode validation ────────────────────────────────────────────────
+
+  const validateBeforeRun = useCallback((): { ok: boolean; reason?: string } => {
+    if (cfg.players.length < 2) {
+      return { ok: false, reason: 'Need at least 2 players to run' };
+    }
+    const emptyPlayer = cfg.players.find((p) => p.ants.length === 0);
+    if (emptyPlayer) {
+      return { ok: false, reason: `${emptyPlayer.name} has no ants. Place some or change spawn pattern.` };
+    }
+    return { ok: true };
+  }, [cfg.players]);
+
+  const switchToRun = useCallback(() => {
+    const check = validateBeforeRun();
+    if (!check.ok) {
+      showToast(check.reason ?? 'Cannot run', 'warn');
+      return;
+    }
+    sx.setMode('run');
+    sx.setPaused(false);
+  }, [validateBeforeRun, sx, showToast]);
+
+  const switchToEdit = useCallback(() => {
+    if (statsTick > 0) {
+      if (!confirm('Switch to Edit will reset the simulation. Continue?')) return;
+      sx.resetWithSameSeed();
+    }
+    sx.setMode('edit');
+    setStatsTick(0);
+  }, [statsTick, sx]);
+
+  const onStep = useCallback(() => {
+    if (rt.mode === 'edit') {
+      const check = validateBeforeRun();
+      if (!check.ok) {
+        showToast(check.reason ?? 'Cannot step', 'warn');
+        return;
+      }
+      // Step из edit: переключаемся в run + pause, делаем шаг
+      sx.setMode('run');
+      sx.setPaused(true);
+    }
+    setStepSignal((n) => n + 1);
+  }, [rt.mode, validateBeforeRun, sx, showToast]);
+
+  const onEvents = (_ev: StepEvents) => { /* День 4: live stats */ };
+  const onTick = (sim: SimState) => {
+    if (sim.tick % 5 === 0) setStatsTick(sim.tick);
+  };
+
+  const renderTab = () => {
+    switch (activeTab) {
+      case 'players': return <PlayersTab />;
+      case 'ants':    return <AntsTab />;
+      case 'field':   return <FieldTab />;
+      case 'combat':  return <CombatTab />;
+      case 'birth':   return <BirthTab />;
+      case 'visual':  return <VisualTab />;
+      case 'presets': return <PresetsTab />;
+    }
   };
 
   return (
     <div style={{
-      display: 'flex', flexDirection: 'column',
       width: '100vw', height: '100vh',
       background: T.bg, color: T.textPrimary,
+      display: 'flex', flexDirection: 'column',
+      overflow: 'hidden',
     }}>
-      {/* ─── Top bar ──────────────────────────────────────────────────────── */}
+      {/* Toast */}
+      {toast && (
+        <div style={{
+          position: 'fixed', top: 72, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 100,
+          padding: '10px 16px',
+          background: T.bgElevated,
+          border: `1px solid ${toast.kind === 'err' ? T.danger : toast.kind === 'warn' ? T.warning : T.accent}`,
+          borderRadius: T.radiusSm,
+          color: T.textPrimary, fontSize: 12, fontWeight: 500,
+          boxShadow: '0 6px 24px rgba(0,0,0,.5)',
+        }}>{toast.text}</div>
+      )}
+
+      {/* Top bar */}
       <div style={{
         height: 56, padding: '0 24px',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -143,173 +239,124 @@ export function SandboxScreen() {
             ← {t('common.back', 'Back')}
           </Button>
           <Eyebrow>· {t('sandbox.title', 'Sandbox')}</Eyebrow>
+
+          {/* Edit / Run toggle */}
+          <div style={{
+            display: 'flex',
+            marginLeft: 16,
+            border: `1px solid ${T.border}`,
+            borderRadius: T.radiusSm,
+            overflow: 'hidden',
+          }}>
+            <button
+              onClick={switchToEdit}
+              style={{
+                padding: '6px 14px',
+                background: rt.mode === 'edit' ? T.accent : 'transparent',
+                color: rt.mode === 'edit' ? T.bg : T.textMuted,
+                border: 'none', cursor: 'pointer',
+                fontSize: 12, fontWeight: 600,
+              }}
+            >✎ Edit</button>
+            <button
+              onClick={switchToRun}
+              style={{
+                padding: '6px 14px',
+                background: rt.mode === 'run' ? T.accent : 'transparent',
+                color: rt.mode === 'run' ? T.bg : T.textMuted,
+                border: 'none', cursor: 'pointer',
+                fontSize: 12, fontWeight: 600,
+              }}
+            >▶ Run</button>
+          </div>
         </div>
+
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Chip color={paused ? T.warning : T.success} filled size="sm">
-            {paused ? 'paused' : 'live'}
+          <Chip color={rt.paused && rt.mode === 'run' ? T.warning : rt.mode === 'edit' ? T.warning : T.success} filled size="sm">
+            {rt.mode === 'edit' ? 'editing' : (rt.paused ? 'paused' : 'live')}
           </Chip>
-          <Chip color={T.info} size="sm">{t('sandbox.label.tick', 'tick')} {liveStats.tick.toLocaleString()}</Chip>
-          <Chip color={T.accent} size="sm">{effectiveTps} {t('sandbox.label.tps', 'TPS')}</Chip>
-          <Chip color="#C77DFF" size="sm">{liveStats.alive} {t('sandbox.label.ants', 'ants')}</Chip>
+          <Chip color={T.info} size="sm">tick {statsTick.toLocaleString()}</Chip>
+          <Chip color={T.accent} size="sm">{effectiveTps} TPS</Chip>
+          <Chip color="#C77DFF" size="sm">{cfg.players.length}p · {totalAnts} ants</Chip>
         </div>
       </div>
 
-      {/* ─── Main: canvas slева, panel справа ─────────────────────────────── */}
+      {/* Main area */}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        {/* Canvas */}
         <div style={{
           flex: 1, display: 'flex',
           alignItems: 'center', justifyContent: 'center',
           padding: 20, minWidth: 0,
+          position: 'relative',
         }}>
-          <LangtonField
-            w={cfg.width}
-            h={cfg.height}
-            cellSize={cellSize}
-            ants={ants}
-            palette={palette}
-            tps={effectiveTps}
-            paused={paused}
-            glow={cfg.showGlow}
-            showTrail={cfg.showTrails}
-            showHpDots={cfg.showHpDots}
-            antScale={cfg.antScale}
-            bg={cfg.bgColor}
-            seed={cfg.seed}
-            collisionCooldownTicks={cfg.collisionCooldownTicks}
-            birthConfig={birthConfig}
-            onEvents={onEvents}
-            onTick={onTick}
-          />
+          <div style={{
+            border: rt.mode === 'edit' ? `2px solid ${T.warning}` : '2px solid transparent',
+            borderRadius: T.radiusSm,
+            padding: 2,
+            transition: 'border-color .15s',
+            position: 'relative',
+          }}>
+            <LangtonField
+              w={cfg.width}
+              h={cfg.height}
+              cellSize={cellSize}
+              ants={engineAnts}
+              palette={palette}
+              tps={effectiveTps}
+              paused={rt.mode === 'edit' || rt.paused}
+              glow={cfg.showGlow}
+              showTrail={cfg.showTrails}
+              showHpDots={cfg.showHpDots}
+              showDirectionArrows={cfg.showDirectionArrows}
+              showGrid={cfg.showGrid}
+              antScale={cfg.antScale}
+              bg={cfg.bgColor}
+              seed={cfg.seed}
+              collisionCooldownTicks={cfg.collisionCooldownTicks}
+              birthConfig={birthConfig}
+              selectedAntId={rt.selectedAntId}
+              editMode={rt.mode === 'edit'}
+              onCellClick={onCanvasClick}
+              onCellContextMenu={onCanvasContextMenu}
+              onCellWheel={onCanvasWheel}
+              stepSignal={stepSignal}
+              onEvents={onEvents}
+              onTick={onTick}
+            />
+            {rt.mode === 'edit' && (
+              <div style={{
+                position: 'absolute', top: 6, left: 8,
+                padding: '4px 10px',
+                background: T.warning, color: '#000',
+                fontSize: 10, fontWeight: 700,
+                letterSpacing: 1, textTransform: 'uppercase',
+                borderRadius: 3,
+                fontFamily: 'JetBrains Mono, monospace',
+                pointerEvents: 'none',
+              }}>
+                EDIT MODE · click to add · shift+click to remove · wheel/RMB to rotate
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* ─── Settings panel ──────────────────────────────────────────────── */}
+        {/* Tab strip */}
+        <TabStrip active={activeTab} onChange={setActiveTab} />
+
+        {/* Tab content */}
         <div style={{
-          width: 320, padding: 20,
-          borderLeft: `1px solid ${T.border}`,
+          width: 340,
           background: T.bgElevated,
           overflow: 'auto',
-          display: 'flex', flexDirection: 'column', gap: 24,
+          padding: '20px 16px',
         }}>
-          {/* Field */}
-          <Section title={t('sandbox.section.field', 'Field')}>
-            <Slider label="Width"  value={cfg.width}  min={20} max={150} onChange={(v) => patchSandbox({ width: Math.round(v) })} suffix={` cells`} />
-            <Slider label="Height" value={cfg.height} min={20} max={120} onChange={(v) => patchSandbox({ height: Math.round(v) })} suffix={` cells`} />
-            <Slider label="Seed"   value={cfg.seed}   min={1}  max={9999} onChange={(v) => patchSandbox({ seed: Math.round(v) })} />
-          </Section>
-
-          {/* Players */}
-          <Section title={t('sandbox.section.players', 'Players')}>
-            {cfg.players.map((p, idx) => (
-              <div key={idx} style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                padding: '6px 0', borderBottom: `1px solid ${T.border}`,
-              }}>
-                <div style={{ width: 14, height: 14, borderRadius: 4, background: p.color }} />
-                <select
-                  value={p.ruleId}
-                  onChange={(e) => {
-                    const newPlayers = [...cfg.players];
-                    newPlayers[idx] = { ...p, ruleId: e.target.value };
-                    patchSandbox({ players: newPlayers });
-                  }}
-                  style={{
-                    flex: 1, background: T.bgOverlay, color: T.textPrimary,
-                    border: `1px solid ${T.border}`, borderRadius: 6,
-                    padding: '4px 8px', fontSize: 11,
-                    fontFamily: 'JetBrains Mono, monospace',
-                  }}
-                >
-                  {RULES_REGISTRY.map((r) => (
-                    <option key={r.id} value={r.id}>{r.label} · {r.pattern}</option>
-                  ))}
-                </select>
-                <Mono size={10} color={T.textMuted}>×{p.antCount}</Mono>
-              </div>
-            ))}
-          </Section>
-
-          {/* Birth */}
-          <Section title={t('sandbox.section.birth', 'Birth')}>
-            <Toggle on={cfg.birthEnabled} onChange={(v) => patchSandbox({ birthEnabled: v })} label="Enabled" />
-            <Slider label="Min neighbours" value={cfg.birthMinNeighbors} min={1} max={8} onChange={(v) => patchSandbox({ birthMinNeighbors: Math.round(v) })} />
-            <Slider label="Cooldown"       value={cfg.birthCooldownTicks} min={10} max={300} onChange={(v) => patchSandbox({ birthCooldownTicks: Math.round(v) })} suffix="t" />
-            <Slider label="Max ants/player" value={cfg.maxAntsPerPlayer} min={1} max={25} onChange={(v) => patchSandbox({ maxAntsPerPlayer: Math.round(v) })} />
-            <Slider label="Hybrid chance"  value={cfg.hybridChance} min={0} max={1} step={0.01} onChange={(v) => patchSandbox({ hybridChance: v })} />
-            <Slider label="Wild chance"    value={cfg.wildBirthChance} min={0} max={0.5} step={0.01} onChange={(v) => patchSandbox({ wildBirthChance: v })} />
-          </Section>
-
-          {/* Combat */}
-          <Section title={t('sandbox.section.combat', 'Combat')}>
-            <Slider label="Clash cooldown" value={cfg.collisionCooldownTicks} min={0} max={50} onChange={(v) => patchSandbox({ collisionCooldownTicks: Math.round(v) })} suffix="t" />
-          </Section>
-
-          {/* Visual */}
-          <Section title={t('sandbox.section.visual', 'Visual')}>
-            <Toggle on={cfg.showGlow}    onChange={(v) => patchSandbox({ showGlow: v })}    label="Glow" />
-            <Toggle on={cfg.showTrails}  onChange={(v) => patchSandbox({ showTrails: v })}  label="Trails" />
-            <Toggle on={cfg.showHpDots}  onChange={(v) => patchSandbox({ showHpDots: v })}  label="HP dots" />
-            <Slider label="Ant scale" value={cfg.antScale} min={0.3} max={1.5} step={0.05} onChange={(v) => patchSandbox({ antScale: v })} />
-          </Section>
-
-          {/* Events counter */}
-          <Section title="Live stats">
-            <Mono size={11} color={T.textMuted}>deaths · {liveStats.deaths}</Mono>
-            <Mono size={11} color={T.textMuted}>collisions · {liveStats.collisions}</Mono>
-            <Mono size={11} color={T.textMuted}>births · {liveStats.births}</Mono>
-          </Section>
+          {renderTab()}
         </div>
       </div>
 
-      {/* ─── Transport bar ───────────────────────────────────────────────── */}
-      <div style={{
-        height: 64, padding: '0 24px',
-        display: 'flex', alignItems: 'center', gap: 14,
-        borderTop: `1px solid ${T.border}`, background: T.bgElevated,
-        flexShrink: 0,
-      }}>
-        <Button onClick={() => setPaused((p) => !p)} size="md">
-          {paused ? '▶ ' + t('sandbox.button.play', 'Play') : '⏸ ' + t('sandbox.button.pause', 'Pause')}
-        </Button>
-        <Button variant="ghost" size="md" onClick={onReset}>
-          ↺ {t('sandbox.button.reset', 'Reset')}
-        </Button>
-        <div style={{ width: 1, height: 28, background: T.border, margin: '0 8px' }} />
-        <Eyebrow>speed</Eyebrow>
-        <div style={{ display: 'flex', gap: 4 }}>
-          {[0.25, 0.5, 1, 2, 4, 8, 16].map((m) => (
-            <button
-              key={m}
-              onClick={() => patchSandbox({ speedMultiplier: m })}
-              style={{
-                padding: '6px 10px', minWidth: 38,
-                borderRadius: 6,
-                background: cfg.speedMultiplier === m ? T.accent : T.bgOverlay,
-                color: cfg.speedMultiplier === m ? T.bg : T.textPrimary,
-                border: `1px solid ${T.border}`,
-                fontFamily: 'JetBrains Mono, monospace',
-                fontSize: 11, fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >{m}×</button>
-          ))}
-        </div>
-        <div style={{ width: 1, height: 28, background: T.border, margin: '0 8px' }} />
-        <Slider label="Base TPS" value={cfg.baseTps} min={1} max={60} onChange={(v) => patchSandbox({ baseTps: Math.round(v) })} />
-        <div style={{ marginLeft: 'auto' }}>
-          <Button variant="ghost" size="sm" onClick={() => { resetSandbox(); onReset(); }}>
-            Reset all settings
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <Eyebrow>{title}</Eyebrow>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{children}</div>
+      {/* Transport bar */}
+      <TransportBar onStep={onStep} onRun={switchToRun} />
     </div>
   );
 }

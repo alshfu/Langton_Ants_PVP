@@ -1,0 +1,138 @@
+{
+  "id": "four-corners",
+  "name": "Four Corners",
+  "category": "builtin",
+  "description": "4 players spawn at corners — classic 2×2",
+  "tags": [
+    "classic",
+    "4p"
+  ],
+  "author": "langton-arena",
+  "config": {
+    "width": 80,
+    "height": 60,
+    "topology": "torus",
+    "bgColor": "#0A081A",
+    "showGrid": false,
+    "players": [
+      {
+        "id": "player_0",
+        "name": "P1",
+        "color": "#FF5470",
+        "ruleId": "classic",
+        "startHp": 3,
+        "spawnPattern": "corner",
+        "antCount": 2,
+        "ants": [
+          {
+            "id": "p0_a0",
+            "x": 2,
+            "y": 2,
+            "dir": 2,
+            "ruleOverride": null
+          },
+          {
+            "id": "p0_a1",
+            "x": 3,
+            "y": 3,
+            "dir": 2,
+            "ruleOverride": null
+          }
+        ]
+      },
+      {
+        "id": "player_1",
+        "name": "P2",
+        "color": "#4DA8FF",
+        "ruleId": "spiral",
+        "startHp": 3,
+        "spawnPattern": "corner",
+        "antCount": 2,
+        "ants": [
+          {
+            "id": "p1_a0",
+            "x": 77,
+            "y": 2,
+            "dir": 2,
+            "ruleOverride": null
+          },
+          {
+            "id": "p1_a1",
+            "x": 76,
+            "y": 3,
+            "dir": 2,
+            "ruleOverride": null
+          }
+        ]
+      },
+      {
+        "id": "player_2",
+        "name": "P3",
+        "color": "#39D98A",
+        "ruleId": "flower",
+        "startHp": 3,
+        "spawnPattern": "corner",
+        "antCount": 2,
+        "ants": [
+          {
+            "id": "p2_a0",
+            "x": 77,
+            "y": 57,
+            "dir": 0,
+            "ruleOverride": null
+          },
+          {
+            "id": "p2_a1",
+            "x": 76,
+            "y": 56,
+            "dir": 0,
+            "ruleOverride": null
+          }
+        ]
+      },
+      {
+        "id": "player_3",
+        "name": "P4",
+        "color": "#FFD60A",
+        "ruleId": "reverse",
+        "startHp": 3,
+        "spawnPattern": "corner",
+        "antCount": 2,
+        "ants": [
+          {
+            "id": "p3_a0",
+            "x": 2,
+            "y": 57,
+            "dir": 0,
+            "ruleOverride": null
+          },
+          {
+            "id": "p3_a1",
+            "x": 3,
+            "y": 56,
+            "dir": 0,
+            "ruleOverride": null
+          }
+        ]
+      }
+    ],
+    "hpEnabled": true,
+    "damageCapEnabled": true,
+    "collisionCooldownTicks": 5,
+    "birthEnabled": true,
+    "birthMinNeighbors": 3,
+    "birthCooldownTicks": 80,
+    "maxAntsPerPlayer": 12,
+    "hybridChance": 0.1,
+    "wildBirthChance": 0.03,
+    "showGlow": true,
+    "showTrails": true,
+    "showHpDots": true,
+    "showDirectionArrows": false,
+    "antScale": 0.9,
+    "trailDecay": 0.94,
+    "baseTps": 15,
+    "speedMultiplier": 1,
+    "seed": 200
+  }
+}
