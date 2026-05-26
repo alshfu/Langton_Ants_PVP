@@ -10,7 +10,7 @@
 //   - stepSignal — внешний триггер "один тик вперёд"
 //   - showGrid — линии сетки
 
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import {
   makeLangtonState,
   stepLangton,
@@ -39,6 +39,10 @@ export interface LangtonFieldProps {
   paused?: boolean;
   seed?: number;
   collisionCooldownTicks?: number;
+  /** Stage 3: если false — HP не вычитается, муравьи неуязвимы. */
+  hpEnabled?: boolean;
+  /** Stage 3: если false — урон накопительный. */
+  damageCapEnabled?: boolean;
   birthConfig?: BirthConfig | null;
 
   // Визуал
@@ -64,7 +68,18 @@ export interface LangtonFieldProps {
   onTick?: (sim: SimState) => void;
 }
 
-export function LangtonField({
+/**
+ * Imperative API доступный извне через ref.
+ * Используется для snapshot/restore при step back.
+ */
+export interface LangtonFieldHandle {
+  /** Получить текущий SimState (ссылка, не копия). */
+  getSim: () => SimState | null;
+  /** Восстановить sim из snapshot. Перезаписывает все поля. */
+  restoreSnapshot: (snap: import('@lib/simSnapshot').SimSnapshot) => void;
+}
+
+export const LangtonField = forwardRef<LangtonFieldHandle, LangtonFieldProps>(function LangtonField({
   w, h, cellSize, ants, palette,
   shapes, skinPack = 'shape',
   tps = 12, paused = false,
@@ -73,13 +88,14 @@ export function LangtonField({
   showCellState = false,
   antScale = 1, bg = '#0E0B1F',
   seed = 1, collisionCooldownTicks = 5,
+  hpEnabled = true, damageCapEnabled = true,
   birthConfig = null,
   selectedAntId = null,
   editMode = false,
   onCellClick, onCellContextMenu, onCellWheel,
   stepSignal = 0,
   onEvents, onTick,
-}: LangtonFieldProps) {
+}, ref) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const simRef = useRef<SimState | null>(null);
   const trailRef = useRef<Float32Array | null>(null);
@@ -87,7 +103,12 @@ export function LangtonField({
 
   // (Re)build sim при смене размера/seed/состава ants
   useEffect(() => {
-    simRef.current = makeLangtonState({ w, h, ants, seed, collisionCooldownTicks, birthConfig });
+    simRef.current = makeLangtonState({
+      w, h, ants, seed,
+      collisionCooldownTicks,
+      hpEnabled, damageCapEnabled,
+      birthConfig,
+    });
     trailRef.current = new Float32Array(w * h);
     force((n) => n + 1);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -99,22 +120,35 @@ export function LangtonField({
   }, [collisionCooldownTicks]);
 
   useEffect(() => {
+    if (simRef.current) simRef.current.hpEnabled = hpEnabled;
+  }, [hpEnabled]);
+
+  useEffect(() => {
+    if (simRef.current) simRef.current.damageCapEnabled = damageCapEnabled;
+  }, [damageCapEnabled]);
+
+  useEffect(() => {
     if (simRef.current) simRef.current.birthConfig = birthConfig;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(birthConfig)]);
 
-  // Step — внешний сигнал: один тик, только если paused и editMode
+  // Step — внешний сигнал: разность между prev и current = количество тиков вперёд.
+  // Если current < prev — игнорируется (step back делается через snapshot restore извне).
   const prevStepRef = useRef(stepSignal);
   useEffect(() => {
     if (stepSignal !== prevStepRef.current && simRef.current && trailRef.current) {
+      const delta = stepSignal - prevStepRef.current;
       prevStepRef.current = stepSignal;
-      const ev = stepLangton(simRef.current);
-      for (const c of ev.captures) {
-        const i = c.y * simRef.current.w + c.x;
-        if (i >= 0 && i < trailRef.current.length) trailRef.current[i] = 1;
+      if (delta <= 0) return; // step back — не нашa зона ответственности
+      for (let i = 0; i < delta; i++) {
+        const ev = stepLangton(simRef.current);
+        for (const c of ev.captures) {
+          const idx = c.y * simRef.current.w + c.x;
+          if (idx >= 0 && idx < trailRef.current.length) trailRef.current[idx] = 1;
+        }
+        onEvents?.(ev);
+        onTick?.(simRef.current);
       }
-      onEvents?.(ev);
-      onTick?.(simRef.current);
     }
   }, [stepSignal, onEvents, onTick]);
 
@@ -208,6 +242,25 @@ export function LangtonField({
     return () => canvas.removeEventListener('wheel', handleWheel);
   }, [editMode, handleWheel]);
 
+  // Imperative API для внешнего snapshot/restore
+  useImperativeHandle(ref, () => ({
+    getSim: () => simRef.current,
+    restoreSnapshot: (snap) => {
+      const sim = simRef.current;
+      if (!sim) return;
+      sim.tick = snap.tick;
+      if (sim.owner.length === snap.ownerCopy.length) {
+        sim.owner.set(snap.ownerCopy);
+        sim.state.set(snap.stateCopy);
+      }
+      sim.ants = snap.antsCopy.map((a) => ({ ...a }));
+      sim.lastBirthTickByOwner = { ...snap.lastBirthTickByOwner };
+      // Trail тоже сбросим — он не часть state, но визуально странно
+      // показывать trail от событий которых "ещё не было"
+      if (trailRef.current) trailRef.current.fill(0);
+    },
+  }), []);
+
   return (
     <canvas
       ref={canvasRef}
@@ -221,7 +274,7 @@ export function LangtonField({
       }}
     />
   );
-}
+});
 
 // ─── Render ──────────────────────────────────────────────────────────────────
 

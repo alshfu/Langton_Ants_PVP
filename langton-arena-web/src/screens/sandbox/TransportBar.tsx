@@ -1,8 +1,9 @@
 // src/screens/sandbox/TransportBar.tsx
 //
-// Нижняя панель управления симуляцией:
-// Play/Pause | Step (только в pause) | Reset | Re-roll | Speed × | TPS slider
+// Нижняя панель управления:
+// Play/Pause | Step controls (−N / +1 / +5 / +N с custom) | Reset / Re-roll | Speed | TPS
 
+import { useState } from 'react';
 import { useTheme } from '@theme/ThemeProvider';
 import { useAppState } from '@state/AppStateProvider';
 import { Button } from '@ui/Button';
@@ -10,14 +11,19 @@ import { Slider } from '@ui/Slider';
 import { Eyebrow } from '@ui/Eyebrow';
 
 interface TransportBarProps {
-  onStep: () => void;
-  /** Передаётся снаружи чтобы при Run прошла валидация (2+ игроков, муравьи). */
+  /** Шаг вперёд на N тиков (1 — обычный, можно больше). */
+  onStep: (n: number) => void;
+  /** Шаг назад на N тиков (опционально, может быть undefined если не поддерживается). */
+  onStepBack?: (n: number) => void;
+  /** Канонический "Run" — для перехода из edit. */
   onRun: () => void;
+  /** Доступно ли двигаться назад (есть ли snapshots). */
+  canStepBack?: boolean;
 }
 
 const SPEED_MULTIPLIERS = [0.25, 0.5, 1, 2, 4, 8, 16, 32, 64];
 
-export function TransportBar({ onStep, onRun }: TransportBarProps) {
+export function TransportBar({ onStep, onStepBack, onRun, canStepBack = false }: TransportBarProps) {
   const { tokens: T } = useTheme();
   const { state, sandbox: sx } = useAppState();
   const cfg = state.sandbox;
@@ -25,10 +31,24 @@ export function TransportBar({ onStep, onRun }: TransportBarProps) {
   const inEdit = rt.mode === 'edit';
   const effectiveTps = Math.round(cfg.baseTps * cfg.speedMultiplier);
 
+  const [customStep, setCustomStep] = useState<string>('100');
+  const parsedCustom = Math.max(1, Math.min(10000, parseInt(customStep, 10) || 100));
+
+  const stepBtnStyle: React.CSSProperties = {
+    padding: '6px 10px', minWidth: 44,
+    borderRadius: T.radiusSm,
+    background: T.bgOverlay, color: T.textPrimary,
+    border: `1px solid ${T.border}`,
+    fontFamily: 'JetBrains Mono, monospace',
+    fontSize: 11, fontWeight: 600,
+    cursor: 'pointer',
+  };
+  const disabledOpacity = !rt.paused ? { opacity: 0.4, cursor: 'not-allowed' as const } : {};
+
   return (
     <div style={{
-      height: 68, padding: '0 24px',
-      display: 'flex', alignItems: 'center', gap: 14,
+      height: 72, padding: '0 24px',
+      display: 'flex', alignItems: 'center', gap: 12,
       borderTop: `1px solid ${T.border}`,
       background: T.bgElevated,
       flexShrink: 0,
@@ -37,47 +57,108 @@ export function TransportBar({ onStep, onRun }: TransportBarProps) {
       <Button
         size="md"
         onClick={() => {
-          if (inEdit) {
-            onRun();
-          } else {
-            sx.setPaused(!rt.paused);
-          }
+          if (inEdit) onRun();
+          else sx.setPaused(!rt.paused);
         }}
       >
         {inEdit ? '▶ Run' : (rt.paused ? '▶ Play' : '⏸ Pause')}
       </Button>
 
-      {/* Step — только в pause */}
-      <Button
-        variant="ghost"
-        size="md"
-        onClick={onStep}
-        disabled={!rt.paused}
-        style={{ opacity: rt.paused ? 1 : 0.4 }}
-      >⏭ Step</Button>
+      {/* Step controls — только в pause */}
+      <div style={{ width: 1, height: 28, background: T.border }} />
+      <Eyebrow>step</Eyebrow>
+
+      <div style={{ display: 'flex', gap: 3 }}>
+        {/* Back custom */}
+        <button
+          onClick={() => onStepBack?.(parsedCustom)}
+          disabled={!rt.paused || !canStepBack}
+          title={canStepBack ? `Back ${parsedCustom} ticks` : 'No history available'}
+          style={{
+            ...stepBtnStyle,
+            ...(!rt.paused || !canStepBack ? { opacity: 0.3, cursor: 'not-allowed' as const } : {}),
+          }}
+        >−{parsedCustom}</button>
+
+        {/* Back 1 */}
+        <button
+          onClick={() => onStepBack?.(1)}
+          disabled={!rt.paused || !canStepBack}
+          style={{
+            ...stepBtnStyle,
+            minWidth: 36,
+            ...(!rt.paused || !canStepBack ? { opacity: 0.3, cursor: 'not-allowed' as const } : {}),
+          }}
+        >−1</button>
+
+        {/* Forward 1 */}
+        <button
+          onClick={() => onStep(1)}
+          disabled={!rt.paused}
+          style={{
+            ...stepBtnStyle,
+            minWidth: 36,
+            ...disabledOpacity,
+          }}
+        >+1</button>
+
+        {/* Forward 5 */}
+        <button
+          onClick={() => onStep(5)}
+          disabled={!rt.paused}
+          style={{ ...stepBtnStyle, minWidth: 36, ...disabledOpacity }}
+        >+5</button>
+
+        {/* Forward custom */}
+        <button
+          onClick={() => onStep(parsedCustom)}
+          disabled={!rt.paused}
+          style={stepBtnStyle}
+        >+{parsedCustom}</button>
+
+        {/* Custom value input */}
+        <input
+          type="number"
+          min={1}
+          max={10000}
+          value={customStep}
+          onChange={(e) => setCustomStep(e.target.value)}
+          disabled={!rt.paused}
+          title="Custom step count"
+          style={{
+            width: 56, padding: '4px 6px',
+            background: T.bg, color: T.textPrimary,
+            border: `1px solid ${T.border}`,
+            borderRadius: T.radiusSm,
+            fontFamily: 'JetBrains Mono, monospace',
+            fontSize: 11,
+            ...disabledOpacity,
+          }}
+        />
+      </div>
 
       {/* Reset / Re-roll */}
       <div style={{ width: 1, height: 28, background: T.border }} />
-      <Button variant="ghost" size="md" onClick={() => sx.resetWithSameSeed()}>
+      <Button variant="ghost" size="sm" onClick={() => sx.resetWithSameSeed()}>
         ↺ Reset
       </Button>
-      <Button variant="ghost" size="md" onClick={() => sx.reseed()}>
+      <Button variant="ghost" size="sm" onClick={() => sx.reseed()}>
         ⟳ Re-roll
       </Button>
-      <span style={{ fontSize: 11, color: T.textDim, fontFamily: 'JetBrains Mono, monospace' }}>
+      <span style={{ fontSize: 10, color: T.textDim, fontFamily: 'JetBrains Mono, monospace' }}>
         seed: {cfg.seed}
       </span>
 
       {/* Speed multipliers */}
       <div style={{ width: 1, height: 28, background: T.border }} />
-      <Eyebrow>speed</Eyebrow>
-      <div style={{ display: 'flex', gap: 3 }}>
+      <Eyebrow>×</Eyebrow>
+      <div style={{ display: 'flex', gap: 2 }}>
         {SPEED_MULTIPLIERS.map((m) => (
           <button
             key={m}
             onClick={() => sx.patchSandbox({ speedMultiplier: m })}
             style={{
-              padding: '5px 8px', minWidth: 36,
+              padding: '4px 6px', minWidth: 32,
               borderRadius: T.radiusSm,
               background: cfg.speedMultiplier === m ? T.accent : T.bgOverlay,
               color: cfg.speedMultiplier === m ? T.bg : T.textPrimary,
@@ -86,22 +167,21 @@ export function TransportBar({ onStep, onRun }: TransportBarProps) {
               fontSize: 10, fontWeight: 600,
               cursor: 'pointer',
             }}
-          >{m}×</button>
+          >{m}</button>
         ))}
       </div>
 
       {/* TPS slider */}
       <div style={{ width: 1, height: 28, background: T.border }} />
-      <div style={{ flex: 1, maxWidth: 240, minWidth: 140 }}>
+      <div style={{ flex: 1, maxWidth: 200, minWidth: 120 }}>
         <Slider
           value={cfg.baseTps} min={1} max={60}
           onChange={(v) => sx.patchSandbox({ baseTps: Math.round(v) })}
-          label="Base TPS"
-          suffix={` · effective ${effectiveTps}`}
+          label="TPS"
+          suffix={` · ${effectiveTps}`}
         />
       </div>
 
-      {/* Reset config */}
       <Button variant="ghost" size="sm" onClick={() => sx.resetSandbox()} style={{ marginLeft: 'auto' }}>
         Reset all
       </Button>

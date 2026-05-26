@@ -7,7 +7,7 @@
 // В production-варианте этот код будет общим с бэкендом (через @langton/core).
 
 import { LA_DIRS } from './rules';
-import { mulberry32, randInt, type PRNG } from './prng';
+import { mulberry32, type PRNG } from './prng';
 
 export interface Ant {
   id: string;
@@ -46,6 +46,10 @@ export interface SimState {
   /** State-grid для физики Лэнгтона (0..len-1 по правилу). */
   state: Uint8Array;
   collisionCooldownTicks: number;
+  /** Stage 3: если false — HP не вычитается, муравьи не умирают (обзорный режим). */
+  hpEnabled: boolean;
+  /** Stage 3: если false — урон накопительный (каждый враг = −1 HP). */
+  damageCapEnabled: boolean;
   birthConfig: BirthConfig | null;
   lastBirthTickByOwner: Record<number, number>;
   rng: PRNG;
@@ -66,11 +70,21 @@ export interface MakeStateConfig {
   ants: Array<Omit<Ant, 'maxHp' | 'lastDamageTick' | 'bornAt'> & { maxHp?: number }>;
   seed?: number;
   collisionCooldownTicks?: number;
+  /** Stage 3: false → муравьи неуязвимы (обзорный режим). По умолчанию true. */
+  hpEnabled?: boolean;
+  /** Stage 3: false → урон накопительный, каждый враг −1 HP. По умолчанию true. */
+  damageCapEnabled?: boolean;
   birthConfig?: BirthConfig | null;
 }
 
 export function makeLangtonState(config: MakeStateConfig): SimState {
-  const { w, h, ants: rawAnts, seed = 1, collisionCooldownTicks = 5, birthConfig = null } = config;
+  const {
+    w, h, ants: rawAnts, seed = 1,
+    collisionCooldownTicks = 5,
+    hpEnabled = true,
+    damageCapEnabled = true,
+    birthConfig = null,
+  } = config;
 
   const owner = new Uint8Array(w * h);
   const state = new Uint8Array(w * h);
@@ -99,6 +113,8 @@ export function makeLangtonState(config: MakeStateConfig): SimState {
   return {
     w, h, tick: 0, ants, owner, state,
     collisionCooldownTicks,
+    hpEnabled,
+    damageCapEnabled,
     birthConfig,
     lastBirthTickByOwner: {},
     rng: mulberry32(seed),
@@ -161,13 +177,17 @@ export function stepLangton(sim: SimState): StepEvents {
       antIds: group.map((a) => a.id),
     });
 
+    // Если HP отключён — фиксируем коллизию как событие, но урона не наносим.
+    // Муравьи продолжают двигаться, статистика clashes идёт, для аналитики полезно.
+    if (!sim.hpEnabled) continue;
+
     for (const a of group) {
       // Иммунитет после недавнего урона
       if (sim.tick - a.lastDamageTick < cd) continue;
 
       const enemies = group.reduce((n, b) => n + (b.owner !== a.owner ? 1 : 0), 0);
-      // Damage cap: максимум −1 HP за столкновение, сколько бы врагов ни было
-      const dmg = Math.min(1, enemies);
+      // Damage cap: если включён — максимум −1 HP за столкновение. Иначе — накопительно.
+      const dmg = sim.damageCapEnabled ? Math.min(1, enemies) : enemies;
       a.hp -= dmg;
       a.lastDamageTick = sim.tick;
       events.damage.push({ id: a.id, owner: a.owner, hp: a.hp, enemies });
@@ -179,7 +199,19 @@ export function stepLangton(sim: SimState): StepEvents {
     }
   }
 
-  // ─── 3. Рождение (если включено) ──────────────────────────────────────────
+  // ─── 3. Рождение (детерминированные правила) ──────────────────────────────
+  // Все случайные выборы заменены на детерминированные правила:
+  //  - Родитель: тот у кого МАКСИМУМ своих соседей (центр массы колонии).
+  //              При равенстве — наименьший id (стабильность).
+  //  - Клетка рождения: первая свободная по часовой стрелке начиная с N
+  //                    (N → E → S → W → NE → SE → SW → NW).
+  //  - Направление новорождённого: как у родителя.
+  //  - Гибрид: если есть муравей ДРУГОГО игрока в радиусе 2 клеток от родителя.
+  //           Берётся ближайший (по Чебышёву, потом по id).
+  //  - Wild: если среди 8 соседей клетки рождения >= 5 разных owner'ов.
+  //         Правило перемешивается детерминированно (циклический сдвиг на N
+  //         где N = tick % length).
+  //  - Hybrid И wild могут совпасть: wild имеет приоритет.
   const bc = sim.birthConfig;
   if (bc && bc.enabled) {
     const aliveByOwner = new Map<number, Ant[]>();
@@ -190,23 +222,26 @@ export function stepLangton(sim: SimState): StepEvents {
       list.push(a);
     }
 
-    for (const [ownerId, ownAnts] of aliveByOwner) {
+    // Сортируем по ownerId для детерминированного порядка обработки
+    const sortedOwners = [...aliveByOwner.entries()].sort(([a], [b]) => a - b);
+
+    for (const [ownerId, ownAnts] of sortedOwners) {
       const last = sim.lastBirthTickByOwner[ownerId] ?? -9999;
       if (sim.tick - last < bc.cooldownTicks) continue;
 
       // Лимит per-player или unlimited с глобальным cap
       if (bc.unlimited) {
         const totalAlive = ants.reduce((n, a) => n + (a.dead ? 0 : 1), 0);
-        if (totalAlive >= w * h - 1) continue; // глобальный cap = поле − 1
+        if (totalAlive >= w * h - 1) continue;
       } else {
         if (ownAnts.length >= bc.maxAntsPerPlayer) continue;
       }
 
-      // Найти кандидата с ≥ minNeighbors своих соседних клеток
+      // ─── Выбор родителя: МАКСИМУМ своих соседей ─────────────────────────
+      // При равенстве — наименьший id (детерминированный tiebreaker).
       let chosen: Ant | null = null;
-      const sampleSize = Math.min(3, ownAnts.length);
-      for (let s = 0; s < sampleSize; s++) {
-        const cand = ownAnts[randInt(sim.rng, ownAnts.length)]!;
+      let bestCount = -1;
+      for (const cand of ownAnts) {
         let cnt = 0;
         for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
           if (dx === 0 && dy === 0) continue;
@@ -214,41 +249,76 @@ export function stepLangton(sim: SimState): StepEvents {
           const ny = (cand.y + dy + h) % h;
           if (owner[ny * w + nx] === ownerId + 1) cnt++;
         }
-        if (cnt >= bc.minNeighbors) { chosen = cand; break; }
+        if (cnt < bc.minNeighbors) continue;
+        if (cnt > bestCount || (cnt === bestCount && chosen && cand.id < chosen.id)) {
+          bestCount = cnt;
+          chosen = cand;
+        }
       }
       if (!chosen) continue;
 
-      // Найти свободную соседнюю клетку
-      const free: Array<{ x: number; y: number }> = [];
-      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-        if (dx === 0 && dy === 0) continue;
+      // ─── Клетка рождения: первая свободная по часовой стрелке ───────────
+      // Порядок: N (0,-1), NE (1,-1), E (1,0), SE (1,1), S (0,1), SW (-1,1),
+      //          W (-1,0), NW (-1,-1)
+      const CLOCK_OFFSETS: ReadonlyArray<readonly [number, number]> = [
+        [0, -1], [1, -1], [1, 0], [1, 1],
+        [0, 1], [-1, 1], [-1, 0], [-1, -1],
+      ] as const;
+
+      let spot: { x: number; y: number } | null = null;
+      for (const [dx, dy] of CLOCK_OFFSETS) {
         const nx = (chosen.x + dx + w) % w;
         const ny = (chosen.y + dy + h) % h;
         if (!ants.some((b) => !b.dead && b.x === nx && b.y === ny)) {
-          free.push({ x: nx, y: ny });
+          spot = { x: nx, y: ny };
+          break;
         }
       }
-      if (free.length === 0) continue;
-      const spot = free[randInt(sim.rng, free.length)]!;
+      if (!spot) continue;
 
-      // Решаем — обычный / гибрид / дикий
-      const roll = sim.rng();
+      // ─── Решение wild / hybrid / normal — детерминированно ──────────────
       let newOwner = ownerId;
       let newRule = chosen.rule;
       let isHybrid = false;
       let isWild = false;
 
-      if (roll < bc.wildChance) {
+      // Wild: 5+ разных owner'ов среди 8 соседей клетки рождения
+      const neighborOwners = new Set<number>();
+      for (const [dx, dy] of CLOCK_OFFSETS) {
+        const nx = (spot.x + dx + w) % w;
+        const ny = (spot.y + dy + h) % h;
+        const o = owner[ny * w + nx]!;
+        if (o !== 0) neighborOwners.add(o);
+      }
+
+      if (neighborOwners.size >= 5) {
         newOwner = 255;
-        newRule = scrambleRule(chosen.rule, sim.rng);
+        newRule = cyclicShift(chosen.rule, sim.tick % chosen.rule.length);
         isWild = true;
-      } else if (roll < bc.wildChance + bc.hybridChance) {
-        // Найти муравья другого игрока для миксования правил
-        const otherOwners = [...aliveByOwner.entries()].filter(([o]) => o !== ownerId);
-        if (otherOwners.length > 0) {
-          const otherList = otherOwners[randInt(sim.rng, otherOwners.length)]![1];
-          const other = otherList[randInt(sim.rng, otherList.length)]!;
-          newRule = mixRules(chosen.rule, other.rule);
+      } else {
+        // Hybrid: есть муравей другого игрока в радиусе 2 от родителя
+        let nearestOther: Ant | null = null;
+        let nearestDist = 999;
+        for (const other of ants) {
+          if (other.dead || other.owner === ownerId || other.owner === 255) continue;
+          // Чебышёв (по торусу)
+          const ddx = Math.min(
+            Math.abs(other.x - chosen.x),
+            w - Math.abs(other.x - chosen.x),
+          );
+          const ddy = Math.min(
+            Math.abs(other.y - chosen.y),
+            h - Math.abs(other.y - chosen.y),
+          );
+          const dist = Math.max(ddx, ddy);
+          if (dist > 2) continue;
+          if (dist < nearestDist || (dist === nearestDist && nearestOther && other.id < nearestOther.id)) {
+            nearestDist = dist;
+            nearestOther = other;
+          }
+        }
+        if (nearestOther) {
+          newRule = mixRules(chosen.rule, nearestOther.rule);
           isHybrid = true;
         }
       }
@@ -258,7 +328,7 @@ export function stepLangton(sim: SimState): StepEvents {
         owner: newOwner,
         x: spot.x,
         y: spot.y,
-        dir: randInt(sim.rng, 4) as 0 | 1 | 2 | 3,
+        dir: chosen.dir,         // как у родителя
         rule: newRule,
         hp: 3,
         maxHp: 3,
@@ -286,17 +356,17 @@ export function stepLangton(sim: SimState): StepEvents {
   return events;
 }
 
-/** Перемешать символы правила (для wild). */
-function scrambleRule(rule: string, rng: PRNG): string {
-  const chars = rule.split('');
-  for (let i = chars.length - 1; i > 0; i--) {
-    const j = randInt(rng, i + 1);
-    [chars[i], chars[j]] = [chars[j]!, chars[i]!];
-  }
-  return chars.join('');
+/**
+ * Циклический сдвиг символов правила (для wild). Детерминированно.
+ * Сдвиг на N позиций влево: 'RLR'.shift(1) → 'LRR', .shift(2) → 'RRL'
+ */
+function cyclicShift(rule: string, n: number): string {
+  if (rule.length <= 1) return rule;
+  const k = ((n % rule.length) + rule.length) % rule.length;
+  return rule.slice(k) + rule.slice(0, k);
 }
 
-/** Склеить два правила в одно. Длина не больше 6. */
+/** Склеить два правила в одно. Длина не больше 6. Чисто. */
 function mixRules(a: string, b: string): string {
   let out = '';
   const max = Math.min(6, Math.max(a.length, b.length));

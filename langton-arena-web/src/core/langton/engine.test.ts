@@ -44,19 +44,38 @@ describe('langton engine determinism', () => {
     }
   });
 
-  it('different seed produces different state', () => {
+  it('engine is fully deterministic on initial state (seed no longer matters)', () => {
+    // После Этапа 3 День 1 — движок не использует rng. Только начальное
+    // состояние определяет ход симуляции. Разные seed → ТОТ ЖЕ результат
+    // если начальные муравьи одинаковые.
     const a = makeLangtonState(buildSampleConfig(42));
     const b = makeLangtonState(buildSampleConfig(99));
     for (let i = 0; i < 100; i++) {
       stepLangton(a);
       stepLangton(b);
     }
-    // Хотя бы что-то должно отличаться — позиции муравьёв или owner-grid
-    const ownersDifferAt = [];
+    // Owner-grid должен совпадать
     for (let i = 0; i < a.owner.length; i++) {
-      if (a.owner[i] !== b.owner[i]) ownersDifferAt.push(i);
+      expect(a.owner[i]).toBe(b.owner[i]);
     }
-    expect(ownersDifferAt.length).toBeGreaterThan(0);
+    expect(a.ants.length).toBe(b.ants.length);
+  });
+
+  it('different initial positions produce different simulation outcomes', () => {
+    // Зато разные стартовые позиции дают разные результаты — это всегда так.
+    const a = makeLangtonState(buildSampleConfig(42));
+    const bConfig = buildSampleConfig(42);
+    bConfig.ants[0]!.x += 5; // сдвигаем одного муравья
+    const b = makeLangtonState(bConfig);
+    for (let i = 0; i < 100; i++) {
+      stepLangton(a);
+      stepLangton(b);
+    }
+    let differs = 0;
+    for (let i = 0; i < a.owner.length; i++) {
+      if (a.owner[i] !== b.owner[i]) differs++;
+    }
+    expect(differs).toBeGreaterThan(0);
   });
 
   it('damage cap: clash of 4 enemies takes only 1 HP', () => {

@@ -222,6 +222,8 @@ export function SandboxScreen() {
     setStatsTick(0);
     setAliveCount(0);
     resetCounters();
+    setCanStepBack(false);
+    snapshotsRef.current?.clear();
     setLiveStats({
       tick: 0,
       perPlayer: {},
@@ -230,19 +232,61 @@ export function SandboxScreen() {
     });
   }, [statsTick, sx, resetCounters]);
 
-  const onStep = useCallback(() => {
+  // Snapshot history для step back
+  const snapshotsRef = useRef<import('@lib/simSnapshot').SnapshotHistory | null>(null);
+  if (!snapshotsRef.current) {
+    // Lazy init
+    import('@lib/simSnapshot').then(({ SnapshotHistory }) => {
+      snapshotsRef.current = new SnapshotHistory(50, 100);
+    });
+  }
+  const fieldRef = useRef<import('@components/LangtonField').LangtonFieldHandle | null>(null);
+  const [canStepBack, setCanStepBack] = useState(false);
+
+  const onStep = useCallback((n: number) => {
     if (rt.mode === 'edit') {
       const check = validateBeforeRun();
       if (!check.ok) {
         showToast(check.reason ?? 'Cannot step', 'warn');
         return;
       }
-      // Step из edit: переключаемся в run + pause, делаем шаг
       sx.setMode('run');
       sx.setPaused(true);
     }
-    setStepSignal((n) => n + 1);
+    // Сохраняем snapshot ПЕРЕД шагом — чтобы можно было откатиться
+    const sim = fieldRef.current?.getSim();
+    if (sim && snapshotsRef.current) {
+      snapshotsRef.current.capture(sim);
+      setCanStepBack(snapshotsRef.current.hasAny);
+    }
+    setStepSignal((prev) => prev + n);
   }, [rt.mode, validateBeforeRun, sx, showToast]);
+
+  const onStepBack = useCallback((n: number) => {
+    const sim = fieldRef.current?.getSim();
+    const history = snapshotsRef.current;
+    if (!sim || !history || !history.hasAny) {
+      showToast('No history to step back to', 'warn');
+      return;
+    }
+    const targetTick = Math.max(0, sim.tick - n);
+    const nearest = history.findNearest(targetTick);
+    if (!nearest) {
+      showToast(`Can't go back to tick ${targetTick} — no snapshot`, 'warn');
+      return;
+    }
+    // Восстанавливаем ближайший snapshot
+    fieldRef.current?.restoreSnapshot(nearest);
+    // Если нужно — догоняем вперёд до точного tick
+    const toCatchUp = targetTick - nearest.tick;
+    if (toCatchUp > 0) {
+      setStepSignal((prev) => prev + toCatchUp);
+    } else {
+      // Просто обновляем stats — без шагов
+      setStatsTick(nearest.tick);
+    }
+    showToast(`Stepped back to tick ${targetTick}`, 'info');
+  }, [showToast]);
 
   const onEvents = useCallback((ev: StepEvents) => {
     const c = counters.current;
@@ -321,6 +365,12 @@ export function SandboxScreen() {
   }, [cfg.players]);
 
   const onTick = useCallback((sim: SimState) => {
+    // Snapshot для step back каждые 50 тиков
+    if (snapshotsRef.current) {
+      snapshotsRef.current.maybeCapture(sim);
+      if (snapshotsRef.current.hasAny) setCanStepBack(true);
+    }
+
     // На каждом 5-м тике — пересчитываем territory % и пушим в state
     if (sim.tick % 5 !== 0) return;
 
@@ -471,6 +521,7 @@ export function SandboxScreen() {
             position: 'relative',
           }}>
             <LangtonField
+              ref={fieldRef}
               w={cfg.width}
               h={cfg.height}
               cellSize={cellSize}
@@ -490,6 +541,8 @@ export function SandboxScreen() {
               bg={cfg.bgColor}
               seed={cfg.seed}
               collisionCooldownTicks={cfg.collisionCooldownTicks}
+              hpEnabled={cfg.hpEnabled}
+              damageCapEnabled={cfg.damageCapEnabled}
               birthConfig={birthConfig}
               selectedAntId={rt.selectedAntId}
               editMode={rt.mode === 'edit'}
@@ -532,7 +585,12 @@ export function SandboxScreen() {
       </div>
 
       {/* Transport bar */}
-      <TransportBar onStep={onStep} onRun={switchToRun} />
+      <TransportBar
+        onStep={onStep}
+        onStepBack={onStepBack}
+        onRun={switchToRun}
+        canStepBack={canStepBack}
+      />
     </div>
     </LiveStatsProvider>
   );

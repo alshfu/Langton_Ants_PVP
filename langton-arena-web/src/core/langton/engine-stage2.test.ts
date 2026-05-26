@@ -93,3 +93,84 @@ describe('engine Stage 2: unlimited birth', () => {
     expect(alive).toBeLessThanOrEqual(24);
   });
 });
+
+describe('engine Stage 3: HP and damage cap toggles', () => {
+  it('hpEnabled=false: ants never take damage, never die', () => {
+    const sim = makeLangtonState({
+      w: 10, h: 10, seed: 1,
+      ants: [
+        { id: 'a', owner: 0, x: 5, y: 5, dir: 0, rule: 'RL', hp: 1 },
+        { id: 'b', owner: 1, x: 5, y: 5, dir: 0, rule: 'RL', hp: 1 },
+        { id: 'c', owner: 2, x: 5, y: 5, dir: 0, rule: 'RL', hp: 1 },
+        { id: 'd', owner: 3, x: 5, y: 5, dir: 0, rule: 'RL', hp: 1 },
+      ],
+      collisionCooldownTicks: 0,
+      hpEnabled: false,  // ★ HP отключён
+      birthConfig: null,
+    });
+
+    for (let i = 0; i < 50; i++) stepLangton(sim);
+
+    // Все должны быть живы, HP не должен уменьшиться
+    for (const ant of sim.ants) {
+      expect(ant.dead).toBeFalsy();
+      expect(ant.hp).toBe(1);
+    }
+  });
+
+  it('damageCapEnabled=false: damage is cumulative (n enemies = -n HP)', () => {
+    // Сводим 4 муравья из разных стартовых точек в одну клетку (5,5)
+    // на первом тике. Чтобы это случилось, ставим их в клетки откуда движение
+    // приведёт в (5,5). Поскольку движок детерминирован — выбираем такие
+    // позиции и направления, чтобы все четыре прошли в (5,5).
+    // Простой способ: dir уже выставлен, муравьи делают один step и сходятся.
+    // Используем 'NN' правило (несуществующий символ → fallback на R) ИЛИ
+    // явно проверяем поведение.
+    //
+    // Альтернатива: 4 муравья УЖЕ в одной клетке но с rule='UU' (U-turn оба symbols)
+    // На step: rule[state]='U' → dir += 2. Все начинают dir=0 → стали dir=2.
+    // Все идут в (5,6). Все 4 в одной клетке.
+    const sim = makeLangtonState({
+      w: 10, h: 10, seed: 1,
+      ants: [
+        { id: 'a', owner: 0, x: 5, y: 5, dir: 0, rule: 'UU', hp: 10 },
+        { id: 'b', owner: 1, x: 5, y: 5, dir: 0, rule: 'UU', hp: 10 },
+        { id: 'c', owner: 2, x: 5, y: 5, dir: 0, rule: 'UU', hp: 10 },
+        { id: 'd', owner: 3, x: 5, y: 5, dir: 0, rule: 'UU', hp: 10 },
+      ],
+      collisionCooldownTicks: 0,
+      damageCapEnabled: false,
+      birthConfig: null,
+    });
+
+    stepLangton(sim);
+
+    // С UU все 4 муравья поворачивают на 180° и идут в одну сторону → 4 в одной клетке
+    // Каждый теряет 3 HP (3 врага в группе) → HP=7
+    for (const ant of sim.ants) {
+      expect(ant.hp).toBe(7);
+    }
+  });
+
+  it('damageCapEnabled=true (default): max 1 damage per clash', () => {
+    const sim = makeLangtonState({
+      w: 10, h: 10, seed: 1,
+      ants: [
+        { id: 'a', owner: 0, x: 5, y: 5, dir: 0, rule: 'UU', hp: 10 },
+        { id: 'b', owner: 1, x: 5, y: 5, dir: 0, rule: 'UU', hp: 10 },
+        { id: 'c', owner: 2, x: 5, y: 5, dir: 0, rule: 'UU', hp: 10 },
+        { id: 'd', owner: 3, x: 5, y: 5, dir: 0, rule: 'UU', hp: 10 },
+      ],
+      collisionCooldownTicks: 0,
+      damageCapEnabled: true,
+      birthConfig: null,
+    });
+
+    stepLangton(sim);
+
+    // Cap: каждый теряет максимум 1 HP несмотря на 3 врагов
+    for (const ant of sim.ants) {
+      expect(ant.hp).toBe(9);
+    }
+  });
+});
