@@ -52,8 +52,11 @@ export function TabStrip({
               padding: '14px 0 12px',
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
               background: isActive ? T.accentMuted : 'transparent',
+              // Используем только long-form borders — нельзя мешать border (shorthand) с borderLeft (specific)
+              borderTop: 'none',
+              borderRight: 'none',
+              borderBottom: 'none',
               borderLeft: `3px solid ${isActive ? T.accent : 'transparent'}`,
-              border: 'none',
               borderRadius: 0,
               cursor: 'pointer',
               color: isActive ? T.accent : T.textMuted,

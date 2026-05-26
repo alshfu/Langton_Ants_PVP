@@ -126,11 +126,12 @@ export function PresetsTab() {
               transition: 'background .15s, border .15s',
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = T.accent;
+              // Используем border (shorthand) — нельзя мешать border + borderColor (specific)
+              e.currentTarget.style.border = `1px solid ${T.accent}`;
               e.currentTarget.style.background = T.accentMuted;
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = T.border;
+              e.currentTarget.style.border = `1px solid ${T.border}`;
               e.currentTarget.style.background = T.bgOverlay;
             }}
           >
