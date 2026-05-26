@@ -19,7 +19,7 @@
 //   - Минимум 1 муравей у каждого игрока
 //   - Иначе показываем toast и не запускаем
 
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { useTheme } from '@theme/ThemeProvider';
 import { useT } from '@i18n/I18nProvider';
 import { useAppState } from '@state/AppStateProvider';
@@ -31,6 +31,7 @@ import { Eyebrow } from '@ui/Eyebrow';
 import { Chip } from '@ui/Chip';
 
 import type { Ant, BirthConfig, SimState, StepEvents } from '@core/langton/engine';
+import type { SandboxLiveStats, PlayerLiveStats } from '@core/contract/state';
 import { TabStrip, type SandboxTabId } from './sandbox/TabStrip';
 import { PlayersTab } from './sandbox/PlayersTab';
 import { AntsTab } from './sandbox/AntsTab';
@@ -39,7 +40,10 @@ import { CombatTab } from './sandbox/CombatTab';
 import { BirthTab } from './sandbox/BirthTab';
 import { VisualTab } from './sandbox/VisualTab';
 import { PresetsTab } from './sandbox/PresetsTab';
+import { StatsTab } from './sandbox/StatsTab';
 import { TransportBar } from './sandbox/TransportBar';
+import { LiveStatsProvider } from '@state/LiveStatsContext';
+import { computeCellCountsByOwner, computeAliveAntsByOwner } from '@lib/computeStats';
 
 export function SandboxScreen() {
   const { tokens: T } = useTheme();
@@ -53,6 +57,38 @@ export function SandboxScreen() {
   const [aliveCount, setAliveCount] = useState(0);
   const [stepSignal, setStepSignal] = useState(0);
   const [toast, setToast] = useState<{ text: string; kind: 'info' | 'warn' | 'err' } | null>(null);
+
+  // ─── Live Stats ─────────────────────────────────────────────────────────
+  // counters накапливаются на каждый event без re-render'ов.
+  // liveStats обновляется только каждые 5 тиков, чтобы не дёргать UI слишком часто.
+  const counters = useRef({
+    perPlayer: new Map<string, PlayerLiveStats>(),
+    totals: { births: 0, deaths: 0, captures: 0, clashes: 0, hybrids: 0, wilds: 0 },
+  });
+
+  const emptyPlayerStats = (): PlayerLiveStats => ({
+    alive: 0, born: 0, lost: 0, captures: 0, kills: 0,
+    territoryPct: 0, cellsOwned: 0,
+  });
+
+  const resetCounters = useCallback(() => {
+    counters.current.perPlayer = new Map();
+    cfg.players.forEach((p) => counters.current.perPlayer.set(p.id, emptyPlayerStats()));
+    counters.current.totals = { births: 0, deaths: 0, captures: 0, clashes: 0, hybrids: 0, wilds: 0 };
+  }, [cfg.players]);
+
+  const [liveStats, setLiveStats] = useState<SandboxLiveStats>(() => ({
+    tick: 0,
+    perPlayer: {},
+    territoryHistory: [],
+    totals: { births: 0, deaths: 0, captures: 0, clashes: 0, hybrids: 0, wilds: 0 },
+  }));
+
+  // Инициализация счётчиков при изменении списка игроков
+  useEffect(() => {
+    resetCounters();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cfg.players.length]);
 
   const showToast = useCallback((text: string, kind: 'info' | 'warn' | 'err' = 'info') => {
     setToast({ text, kind });
@@ -184,7 +220,15 @@ export function SandboxScreen() {
     }
     sx.setMode('edit');
     setStatsTick(0);
-  }, [statsTick, sx]);
+    setAliveCount(0);
+    resetCounters();
+    setLiveStats({
+      tick: 0,
+      perPlayer: {},
+      territoryHistory: [],
+      totals: { births: 0, deaths: 0, captures: 0, clashes: 0, hybrids: 0, wilds: 0 },
+    });
+  }, [statsTick, sx, resetCounters]);
 
   const onStep = useCallback(() => {
     if (rt.mode === 'edit') {
@@ -200,19 +244,129 @@ export function SandboxScreen() {
     setStepSignal((n) => n + 1);
   }, [rt.mode, validateBeforeRun, sx, showToast]);
 
-  const onEvents = (_ev: StepEvents) => { /* День 4: live stats — Этап 2 День 2 */ };
-  const onTick = (sim: SimState) => {
-    if (sim.tick % 5 === 0) {
-      setStatsTick(sim.tick);
-      const alive = sim.ants.reduce((n, a) => n + (a.dead ? 0 : 1), 0);
-      setAliveCount(alive);
+  const onEvents = useCallback((ev: StepEvents) => {
+    const c = counters.current;
+    // Captures — учитываем владельцу
+    for (const e of ev.captures) {
+      if (e.owner < cfg.players.length) {
+        const p = cfg.players[e.owner];
+        if (p) {
+          const stats = c.perPlayer.get(p.id);
+          if (stats) stats.captures++;
+        }
+        c.totals.captures++;
+      }
     }
-  };
+    // Clashes — всегда
+    c.totals.clashes += ev.collisions.length;
+    // Deaths — учитываем кому умерло + считаем kills тем кто остался жив в этой клетке
+    for (const e of ev.deaths) {
+      if (e.owner < cfg.players.length) {
+        const p = cfg.players[e.owner];
+        if (p) {
+          const stats = c.perPlayer.get(p.id);
+          if (stats) stats.lost++;
+        }
+        c.totals.deaths++;
+      }
+    }
+    // Kills вычисляем через collisions: участники коллизии получают +1 kill за каждого
+    // убитого ВРАГА в этой же клетке. Это упрощение: точнее было бы знать кто кого
+    // конкретно — но для high-level статистики достаточно.
+    for (const clash of ev.collisions) {
+      const deadIdsInClash = new Set(
+        ev.deaths.filter((d) => clash.antIds.includes(d.id)).map((d) => d.id),
+      );
+      if (deadIdsInClash.size === 0) continue;
+      // Каждый живой участник — получает kills = deadCountOfOthers
+      // (по упрощению: считаем что каждый "виновен" в общей смерти)
+      // ...
+      // Для MVP — считаем kill каждому живому участнику если в clash есть смерть
+      const deadOwnersSet = new Set(
+        ev.deaths.filter((d) => deadIdsInClash.has(d.id)).map((d) => d.owner),
+      );
+      for (const id of clash.antIds) {
+        if (deadIdsInClash.has(id)) continue;
+        // Найдём owner живого
+        const stillAlive = ev.damage.find((d) => d.id === id) ?? null;
+        if (!stillAlive) continue;
+        // Если в clash был хотя бы один враг — этот выживший получает kill
+        // (упрощение, не учитывает кто кого реально)
+        const enemyDeaths = ev.deaths.filter(
+          (d) => deadIdsInClash.has(d.id) && d.owner !== stillAlive.owner,
+        ).length;
+        if (enemyDeaths > 0 && stillAlive.owner < cfg.players.length) {
+          const p = cfg.players[stillAlive.owner];
+          if (p) {
+            const stats = c.perPlayer.get(p.id);
+            if (stats) stats.kills += enemyDeaths;
+          }
+        }
+      }
+      void deadOwnersSet;
+    }
+    // Births
+    for (const e of ev.births) {
+      if (e.owner < cfg.players.length) {
+        const p = cfg.players[e.owner];
+        if (p) {
+          const stats = c.perPlayer.get(p.id);
+          if (stats) stats.born++;
+        }
+        c.totals.births++;
+      }
+      if (e.isHybrid) c.totals.hybrids++;
+      if (e.isWild)   c.totals.wilds++;
+    }
+  }, [cfg.players]);
+
+  const onTick = useCallback((sim: SimState) => {
+    // На каждом 5-м тике — пересчитываем territory % и пушим в state
+    if (sim.tick % 5 !== 0) return;
+
+    setStatsTick(sim.tick);
+    const totalAlive = sim.ants.reduce((n, a) => n + (a.dead ? 0 : 1), 0);
+    setAliveCount(totalAlive);
+
+    const cellCounts = computeCellCountsByOwner(sim);
+    const aliveByOwner = computeAliveAntsByOwner(sim);
+    const totalCells = sim.w * sim.h;
+
+    // Обновляем per-player stats: alive, cellsOwned, territoryPct
+    const perPlayer: Record<string, PlayerLiveStats> = {};
+    const historyPoint: Record<string, number> = {};
+
+    cfg.players.forEach((p, pi) => {
+      const accumulated = counters.current.perPlayer.get(p.id) ?? emptyPlayerStats();
+      const cells = cellCounts[pi + 1] ?? 0;
+      const pct = totalCells > 0 ? cells / totalCells : 0;
+      perPlayer[p.id] = {
+        ...accumulated,
+        alive: aliveByOwner.get(pi) ?? 0,
+        cellsOwned: cells,
+        territoryPct: pct,
+      };
+      historyPoint[p.id] = pct;
+    });
+
+    setLiveStats((prev) => {
+      // Ring buffer 200 точек
+      const nextHistory = [...prev.territoryHistory, { tick: sim.tick, byPlayer: historyPoint }];
+      if (nextHistory.length > 200) nextHistory.shift();
+      return {
+        tick: sim.tick,
+        perPlayer,
+        territoryHistory: nextHistory,
+        totals: { ...counters.current.totals },
+      };
+    });
+  }, [cfg.players]);
 
   const renderTab = () => {
     switch (activeTab) {
       case 'players': return <PlayersTab />;
       case 'ants':    return <AntsTab />;
+      case 'stats':   return <StatsTab />;
       case 'field':   return <FieldTab />;
       case 'combat':  return <CombatTab />;
       case 'birth':   return <BirthTab />;
@@ -222,6 +376,7 @@ export function SandboxScreen() {
   };
 
   return (
+    <LiveStatsProvider value={liveStats}>
     <div style={{
       width: '100vw', height: '100vh',
       background: T.bg, color: T.textPrimary,
@@ -379,5 +534,6 @@ export function SandboxScreen() {
       {/* Transport bar */}
       <TransportBar onStep={onStep} onRun={switchToRun} />
     </div>
+    </LiveStatsProvider>
   );
 }

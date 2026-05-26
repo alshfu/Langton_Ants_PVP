@@ -5,7 +5,7 @@
 
 import { useTheme } from '@theme/ThemeProvider';
 
-export type SandboxTabId = 'players' | 'ants' | 'field' | 'combat' | 'birth' | 'visual' | 'presets';
+export type SandboxTabId = 'players' | 'ants' | 'stats' | 'field' | 'combat' | 'birth' | 'visual' | 'presets';
 
 interface TabDef {
   id: SandboxTabId;
@@ -17,10 +17,11 @@ interface TabDef {
 const TABS: TabDef[] = [
   { id: 'players', icon: '👥', label: 'Players', description: 'Add, remove, configure players (2-10)' },
   { id: 'ants',    icon: '🐜', label: 'Ants',    description: 'Individual ants of active player' },
+  { id: 'stats',   icon: '📊', label: 'Stats',   description: 'Live statistics during simulation' },
   { id: 'field',   icon: '⬜', label: 'Field',   description: 'Size, topology, background' },
   { id: 'combat',  icon: '⚔',  label: 'Combat',  description: 'HP, damage cap, cooldown' },
   { id: 'birth',   icon: '✚',  label: 'Birth',   description: 'Reproduction, hybrids, wilds' },
-  { id: 'visual',  icon: '✨', label: 'Visual',  description: 'Glow, trails, ant scale' },
+  { id: 'visual',  icon: '✨', label: 'Visual',  description: 'Glow, trails, ant scale, skins' },
   { id: 'presets', icon: '★',  label: 'Presets', description: 'Load and save scenarios' },
 ];
 
