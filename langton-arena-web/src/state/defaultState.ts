@@ -58,11 +58,14 @@ export function defaultSandbox(): SandboxConfig {
     maxAntsPerPlayer: 12,
     hybridChance: 0.10,
     wildBirthChance: 0.03,
+    unlimitedAnts: false,
 
     showGlow: true,
     showTrails: true,
     showHpDots: true,
     showDirectionArrows: false,
+    showCellState: false,
+    skinPack: 'shape',
     antScale: 0.9,
     trailDecay: 0.94,
 
@@ -80,9 +83,9 @@ export function defaultRuntimeState(activePlayerId: string | null): SandboxRunti
     selectedAntId: null,
     liveStats: {
       tick: 0,
-      aliveByPlayer: {},
-      deathsByPlayer: {},
-      birthsByPlayer: {},
+      perPlayer: {},
+      territoryHistory: [],
+      totals: { births: 0, deaths: 0, captures: 0, clashes: 0, hybrids: 0, wilds: 0 },
     },
   };
 }

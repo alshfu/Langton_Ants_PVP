@@ -70,12 +70,18 @@ export interface SandboxConfig {
   maxAntsPerPlayer: number;
   hybridChance: number;
   wildBirthChance: number;
+  /** Stage 2: снять лимит per-player; cap = width × height − 1. */
+  unlimitedAnts: boolean;
 
   // Visual
   showGlow: boolean;
   showTrails: boolean;
   showHpDots: boolean;
   showDirectionArrows: boolean;
+  /** Stage 2: показывать день/ночь состояние клетки (state-grid поверх territory). */
+  showCellState: boolean;
+  /** Stage 2: какой набор скинов использовать. 'shape' — procedural формы из палитры; 'kenney' — спрайты. */
+  skinPack: 'shape' | 'kenney';
   antScale: number;
   trailDecay: number;
 
@@ -85,17 +91,44 @@ export interface SandboxConfig {
   seed: number;
 }
 
+// ─── Stage 2: Live Stats ─────────────────────────────────────────────────────
+
+export interface PlayerLiveStats {
+  alive: number;
+  born: number;
+  lost: number;
+  captures: number;
+  kills: number;
+  territoryPct: number;
+  cellsOwned: number;
+}
+
+export interface SandboxLiveStats {
+  tick: number;
+  /** Per-player статистика на текущий tick. Key = player.id. */
+  perPlayer: Record<string, PlayerLiveStats>;
+  /** История territory% по тикам, ringbuffer 200 точек. */
+  territoryHistory: Array<{
+    tick: number;
+    byPlayer: Record<string, number>;
+  }>;
+  /** Глобальные счётчики за весь run. */
+  totals: {
+    births: number;
+    deaths: number;
+    captures: number;
+    clashes: number;
+    hybrids: number;
+    wilds: number;
+  };
+}
+
 export interface SandboxRuntimeState {
   mode: SandboxMode;
   paused: boolean;
   activePlayerId: string | null;
   selectedAntId: string | null;
-  liveStats: {
-    tick: number;
-    aliveByPlayer: Record<string, number>;
-    deathsByPlayer: Record<string, number>;
-    birthsByPlayer: Record<string, number>;
-  };
+  liveStats: SandboxLiveStats;
 }
 
 // ─── User preset (в localStorage) ────────────────────────────────────────────

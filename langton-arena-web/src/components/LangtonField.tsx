@@ -20,6 +20,8 @@ import {
   type StepEvents,
 } from '@core/langton/engine';
 import { LA_DIRS } from '@core/langton/rules';
+import { drawShape } from './antShapes';
+import { getSprite, skinIdForPlayer } from '@lib/spriteLoader';
 
 export interface LangtonFieldProps {
   w: number;
@@ -27,6 +29,10 @@ export interface LangtonFieldProps {
   cellSize: number;
   ants: Array<Omit<Ant, 'maxHp' | 'lastDamageTick' | 'bornAt'> & { maxHp?: number }>;
   palette: string[];
+  /** Формы по индексу игрока (для skinPack='shape'). */
+  shapes?: Array<import('./antShapes').ShapeId>;
+  /** Какой набор скинов использовать. */
+  skinPack?: 'shape' | 'kenney';
 
   // Симуляция
   tps?: number;
@@ -41,6 +47,8 @@ export interface LangtonFieldProps {
   showHpDots?: boolean;
   showDirectionArrows?: boolean;
   showGrid?: boolean;
+  /** Показывать day/night состояние клеток (state-grid поверх territory). */
+  showCellState?: boolean;
   antScale?: number;
   bg?: string;
   selectedAntId?: string | null;
@@ -51,19 +59,18 @@ export interface LangtonFieldProps {
   onCellContextMenu?: (x: number, y: number) => void;
   onCellWheel?: (x: number, y: number, deltaY: number) => void;
 
-  // Step (внешний триггер: при изменении числа делаем 1 шаг)
   stepSignal?: number;
-
-  // Callbacks
   onEvents?: (ev: StepEvents) => void;
   onTick?: (sim: SimState) => void;
 }
 
 export function LangtonField({
   w, h, cellSize, ants, palette,
+  shapes, skinPack = 'shape',
   tps = 12, paused = false,
   glow = true, showTrail = true, showHpDots = false,
   showDirectionArrows = false, showGrid = false,
+  showCellState = false,
   antScale = 1, bg = '#0E0B1F',
   seed = 1, collisionCooldownTicks = 5,
   birthConfig = null,
@@ -148,12 +155,13 @@ export function LangtonField({
       draw(canvasRef.current, sim, trail, palette, {
         cellSize, bg, antScale, glow, showTrail, showHpDots,
         showDirectionArrows, showGrid, selectedAntId, editMode,
+        showCellState, shapes, skinPack,
       });
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tps, paused, cellSize, JSON.stringify(palette), bg, antScale, glow, showTrail, showHpDots, showDirectionArrows, showGrid, selectedAntId, editMode]);
+  }, [tps, paused, cellSize, JSON.stringify(palette), JSON.stringify(shapes), skinPack, bg, antScale, glow, showTrail, showHpDots, showDirectionArrows, showGrid, showCellState, selectedAntId, editMode]);
 
   // ─── Mouse interactions ────────────────────────────────────────────────────
   const cellFromEvent = useCallback((e: { clientX: number; clientY: number }): { x: number; y: number } | null => {
@@ -226,8 +234,11 @@ interface DrawOpts {
   showHpDots: boolean;
   showDirectionArrows: boolean;
   showGrid: boolean;
+  showCellState: boolean;
   selectedAntId: string | null;
   editMode: boolean;
+  shapes?: Array<import('./antShapes').ShapeId>;
+  skinPack: 'shape' | 'kenney';
 }
 
 function draw(
@@ -241,7 +252,8 @@ function draw(
   const { w, h } = sim;
   const {
     cellSize, bg, antScale, glow, showTrail, showHpDots,
-    showDirectionArrows, showGrid, selectedAntId, editMode,
+    showDirectionArrows, showGrid, showCellState,
+    selectedAntId, editMode, shapes, skinPack,
   } = opts;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const cssW = w * cellSize;
@@ -278,6 +290,21 @@ function draw(
           ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
           ctx.globalAlpha = 1;
         }
+      }
+    }
+  }
+
+  // 2.5. Day/night cell state (опционально)
+  if (showCellState) {
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const s = sim.state[y * w + x]!;
+        if (s === 0) {
+          ctx.fillStyle = 'rgba(255, 255, 255, .035)';
+        } else {
+          ctx.fillStyle = 'rgba(0, 0, 0, .12)';
+        }
+        ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
       }
     }
   }
@@ -343,12 +370,14 @@ function draw(
       ctx.fillRect(cx - r * 2, cy - r * 2, r * 4, r * 4);
     }
 
-    // Тело
-    ctx.beginPath();
+    // Тело — выбор формы по skinPack
     if (a.isWild) {
+      // Дикий — всегда квадрат, чёткое отличие
       ctx.fillStyle = color;
       ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
     } else if (a.isHybrid) {
+      // Гибрид — всегда ромб
+      ctx.beginPath();
       ctx.moveTo(cx, cy - r);
       ctx.lineTo(cx + r, cy);
       ctx.lineTo(cx, cy + r);
@@ -356,10 +385,21 @@ function draw(
       ctx.closePath();
       ctx.fillStyle = color;
       ctx.fill();
+    } else if (skinPack === 'kenney' && colorIdx >= 0) {
+      // Попытка нарисовать спрайт
+      const skinId = skinIdForPlayer(colorIdx);
+      const sprite = getSprite(skinId);
+      if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+        ctx.drawImage(sprite, cx - r, cy - r, r * 2, r * 2);
+      } else {
+        // Fallback на shape
+        const shape = shapes?.[colorIdx] ?? 'circle';
+        drawShape(ctx, shape, cx, cy, r, color);
+      }
     } else {
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
+      // skinPack='shape' — используем shape из палитры
+      const shape = colorIdx >= 0 ? (shapes?.[colorIdx] ?? 'circle') : 'circle';
+      drawShape(ctx, shape, cx, cy, r, color);
     }
 
     // Стрелка направления

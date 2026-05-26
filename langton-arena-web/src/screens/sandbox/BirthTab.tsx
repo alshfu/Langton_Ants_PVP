@@ -1,19 +1,21 @@
 // src/screens/sandbox/BirthTab.tsx
 
 import { useAppState } from '@state/AppStateProvider';
+import { useTheme } from '@theme/ThemeProvider';
 import { Slider } from '@ui/Slider';
 import { Toggle } from '@ui/Toggle';
 import { Section, Field } from './_shared';
 
 export function BirthTab() {
+  const { tokens: T } = useTheme();
   const { state, sandbox: sx } = useAppState();
   const cfg = state.sandbox;
-  const en = cfg.birthEnabled;
 
   return (
     <div>
       <Section title="Birth">
-        <Toggle on={en} onChange={(v) => sx.patchSandbox({ birthEnabled: v })} label="Enabled" />
+        <Toggle on={cfg.birthEnabled} onChange={(v) => sx.patchSandbox({ birthEnabled: v })} label="Enabled" />
+
         <Field label="Min own neighbours" hint={`${cfg.birthMinNeighbors}`}>
           <Slider
             value={cfg.birthMinNeighbors} min={1} max={8}
@@ -26,12 +28,39 @@ export function BirthTab() {
             onChange={(v) => sx.patchSandbox({ birthCooldownTicks: Math.round(v) })}
           />
         </Field>
-        <Field label="Max ants per player" hint={`${cfg.maxAntsPerPlayer}`}>
-          <Slider
-            value={cfg.maxAntsPerPlayer} min={1} max={30}
-            onChange={(v) => sx.patchSandbox({ maxAntsPerPlayer: Math.round(v) })}
-          />
+      </Section>
+
+      <Section title="Population limit">
+        <Toggle
+          on={cfg.unlimitedAnts}
+          onChange={(v) => sx.patchSandbox({ unlimitedAnts: v })}
+          label="Unlimited (cap = field size)"
+        />
+        <Field
+          label="Max ants per player"
+          hint={cfg.unlimitedAnts ? 'disabled by Unlimited' : `${cfg.maxAntsPerPlayer}`}
+        >
+          <div style={{ opacity: cfg.unlimitedAnts ? 0.4 : 1, pointerEvents: cfg.unlimitedAnts ? 'none' : 'auto' }}>
+            <Slider
+              value={cfg.maxAntsPerPlayer} min={1} max={50}
+              onChange={(v) => sx.patchSandbox({ maxAntsPerPlayer: Math.round(v) })}
+            />
+          </div>
         </Field>
+        {cfg.unlimitedAnts && (
+          <div style={{
+            padding: 8, fontSize: 10, color: T.warning,
+            fontFamily: 'JetBrains Mono, monospace',
+            background: T.bgOverlay, borderRadius: T.radiusSm,
+            border: `1px solid ${T.warning}33`,
+          }}>
+            ⚠ Unlimited: total may grow up to {cfg.width * cfg.height - 1} ants.
+            Performance may drop above ~1000.
+          </div>
+        )}
+      </Section>
+
+      <Section title="Mutations">
         <Field label="Hybrid chance" hint={`${Math.round(cfg.hybridChance * 100)}%`}>
           <Slider
             value={cfg.hybridChance} min={0} max={1} step={0.01}

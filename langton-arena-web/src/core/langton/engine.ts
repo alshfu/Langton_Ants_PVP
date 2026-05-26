@@ -32,6 +32,8 @@ export interface BirthConfig {
   maxAntsPerPlayer: number;
   hybridChance: number;
   wildChance: number;
+  /** Stage 2: если true — игнорируется maxAntsPerPlayer; cap = w*h - 1. */
+  unlimited?: boolean;
 }
 
 export interface SimState {
@@ -191,7 +193,14 @@ export function stepLangton(sim: SimState): StepEvents {
     for (const [ownerId, ownAnts] of aliveByOwner) {
       const last = sim.lastBirthTickByOwner[ownerId] ?? -9999;
       if (sim.tick - last < bc.cooldownTicks) continue;
-      if (ownAnts.length >= bc.maxAntsPerPlayer) continue;
+
+      // Лимит per-player или unlimited с глобальным cap
+      if (bc.unlimited) {
+        const totalAlive = ants.reduce((n, a) => n + (a.dead ? 0 : 1), 0);
+        if (totalAlive >= w * h - 1) continue; // глобальный cap = поле − 1
+      } else {
+        if (ownAnts.length >= bc.maxAntsPerPlayer) continue;
+      }
 
       // Найти кандидата с ≥ minNeighbors своих соседних клеток
       let chosen: Ant | null = null;
@@ -267,6 +276,13 @@ export function stepLangton(sim: SimState): StepEvents {
   }
 
   sim.tick++;
+
+  // ─── 4. Garbage collection мёртвых каждые 200 тиков ───────────────────────
+  // Без этого массив ants растёт безграничено даже при включённом лимите.
+  if (sim.tick % 200 === 0) {
+    sim.ants = ants.filter((a) => !a.dead);
+  }
+
   return events;
 }
 

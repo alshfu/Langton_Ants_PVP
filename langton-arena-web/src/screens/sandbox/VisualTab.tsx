@@ -3,7 +3,7 @@
 import { useAppState } from '@state/AppStateProvider';
 import { Slider } from '@ui/Slider';
 import { Toggle } from '@ui/Toggle';
-import { Section, Field } from './_shared';
+import { Section, Field, Select } from './_shared';
 
 export function VisualTab() {
   const { state, sandbox: sx } = useAppState();
@@ -11,11 +11,25 @@ export function VisualTab() {
 
   return (
     <div>
+      <Section title="Skins">
+        <Field label="Skin pack">
+          <Select
+            value={cfg.skinPack}
+            onChange={(v) => sx.patchSandbox({ skinPack: v as 'shape' | 'kenney' })}
+            options={[
+              { value: 'shape',  label: 'Shapes — geometric (always works)' },
+              { value: 'kenney', label: 'Kenney CC0 — animal sprites (fallback if missing)' },
+            ]}
+          />
+        </Field>
+      </Section>
+
       <Section title="Effects">
         <Toggle on={cfg.showGlow}    onChange={(v) => sx.patchSandbox({ showGlow: v })}    label="Glow halo" />
         <Toggle on={cfg.showTrails}  onChange={(v) => sx.patchSandbox({ showTrails: v })}  label="Capture trails" />
         <Toggle on={cfg.showHpDots}  onChange={(v) => sx.patchSandbox({ showHpDots: v })}  label="HP dots above ants" />
         <Toggle on={cfg.showDirectionArrows} onChange={(v) => sx.patchSandbox({ showDirectionArrows: v })} label="Direction arrows" />
+        <Toggle on={cfg.showCellState} onChange={(v) => sx.patchSandbox({ showCellState: v })} label="Show cell day/night" />
       </Section>
 
       <Section title="Trail decay">

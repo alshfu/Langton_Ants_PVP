@@ -25,6 +25,7 @@ import { useT } from '@i18n/I18nProvider';
 import { useAppState } from '@state/AppStateProvider';
 import { LangtonField } from '@components/LangtonField';
 import { LA_RULES } from '@core/langton/rules';
+import { PLAYER_PALETTE } from '@core/shared/constants';
 import { Button } from '@ui/Button';
 import { Eyebrow } from '@ui/Eyebrow';
 import { Chip } from '@ui/Chip';
@@ -49,6 +50,7 @@ export function SandboxScreen() {
 
   const [activeTab, setActiveTab] = useState<SandboxTabId>('presets');
   const [statsTick, setStatsTick] = useState(0);
+  const [aliveCount, setAliveCount] = useState(0);
   const [stepSignal, setStepSignal] = useState(0);
   const [toast, setToast] = useState<{ text: string; kind: 'info' | 'warn' | 'err' } | null>(null);
 
@@ -84,6 +86,14 @@ export function SandboxScreen() {
 
   const palette = useMemo(() => cfg.players.map((p) => p.color), [cfg.players]);
 
+  /** Shapes по индексу игрока. Берётся из PLAYER_PALETTE по colorId если совпадает,
+   *  иначе циклит по палитре. Это даёт «один цвет = одна форма» по умолчанию,
+   *  но игрок может выбрать любой цвет — форма пойдёт по его индексу. */
+  const shapes = useMemo(
+    () => cfg.players.map((_, i) => PLAYER_PALETTE[i % PLAYER_PALETTE.length]!.shape),
+    [cfg.players.length],
+  );
+
   const birthConfig: BirthConfig | null = useMemo(() => {
     if (!cfg.birthEnabled) return null;
     return {
@@ -93,8 +103,9 @@ export function SandboxScreen() {
       maxAntsPerPlayer: cfg.maxAntsPerPlayer,
       hybridChance:     cfg.hybridChance,
       wildChance:       cfg.wildBirthChance,
+      unlimited:        cfg.unlimitedAnts,
     };
-  }, [cfg.birthEnabled, cfg.birthMinNeighbors, cfg.birthCooldownTicks, cfg.maxAntsPerPlayer, cfg.hybridChance, cfg.wildBirthChance]);
+  }, [cfg.birthEnabled, cfg.birthMinNeighbors, cfg.birthCooldownTicks, cfg.maxAntsPerPlayer, cfg.hybridChance, cfg.wildBirthChance, cfg.unlimitedAnts]);
 
   const effectiveTps = cfg.baseTps * cfg.speedMultiplier;
   const cellSize = Math.max(3, Math.min(14, Math.floor(800 / cfg.width)));
@@ -189,9 +200,13 @@ export function SandboxScreen() {
     setStepSignal((n) => n + 1);
   }, [rt.mode, validateBeforeRun, sx, showToast]);
 
-  const onEvents = (_ev: StepEvents) => { /* День 4: live stats */ };
+  const onEvents = (_ev: StepEvents) => { /* День 4: live stats — Этап 2 День 2 */ };
   const onTick = (sim: SimState) => {
-    if (sim.tick % 5 === 0) setStatsTick(sim.tick);
+    if (sim.tick % 5 === 0) {
+      setStatsTick(sim.tick);
+      const alive = sim.ants.reduce((n, a) => n + (a.dead ? 0 : 1), 0);
+      setAliveCount(alive);
+    }
   };
 
   const renderTab = () => {
@@ -278,6 +293,9 @@ export function SandboxScreen() {
           <Chip color={T.info} size="sm">tick {statsTick.toLocaleString()}</Chip>
           <Chip color={T.accent} size="sm">{effectiveTps} TPS</Chip>
           <Chip color="#C77DFF" size="sm">{cfg.players.length}p · {totalAnts} ants</Chip>
+          {aliveCount > 1000 && (
+            <Chip color={T.warning} filled size="sm">⚠ {aliveCount} alive — may lag</Chip>
+          )}
         </div>
       </div>
 
@@ -303,6 +321,8 @@ export function SandboxScreen() {
               cellSize={cellSize}
               ants={engineAnts}
               palette={palette}
+              shapes={shapes}
+              skinPack={cfg.skinPack}
               tps={effectiveTps}
               paused={rt.mode === 'edit' || rt.paused}
               glow={cfg.showGlow}
@@ -310,6 +330,7 @@ export function SandboxScreen() {
               showHpDots={cfg.showHpDots}
               showDirectionArrows={cfg.showDirectionArrows}
               showGrid={cfg.showGrid}
+              showCellState={cfg.showCellState}
               antScale={cfg.antScale}
               bg={cfg.bgColor}
               seed={cfg.seed}
