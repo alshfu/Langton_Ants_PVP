@@ -1,94 +1,81 @@
 {
-  "id": "birth-showcase",
-  "name": "Birth Showcase",
+  "id": "mirror-twin",
+  "name": "Mirror Twin",
   "category": "builtin",
-  "description": "Aggressive reproduction — watch colonies grow",
+  "description": "2 players mirrored — same mutations on both sides at same tick",
   "tags": [
-    "birth",
-    "demo"
+    "stage5",
+    "mirror",
+    "2p",
+    "symmetric",
+    "determinism"
   ],
   "author": "langton-arena",
   "config": {
-    "width": 70,
-    "height": 50,
+    "width": 80,
+    "height": 60,
     "topology": "torus",
     "bgColor": "#0A081A",
     "showGrid": false,
     "players": [
       {
         "id": "player_0",
-        "name": "P1",
+        "name": "Left",
         "color": "#FF5470",
-        "ruleId": "classic",
+        "ruleId": "spiral",
         "startHp": 3,
-        "spawnPattern": "radial",
-        "antCount": 4,
+        "spawnPattern": "manual",
         "ants": [
           {
             "id": "p0_a0",
-            "x": 40,
-            "y": 8,
-            "dir": 0,
-            "ruleOverride": null
-          },
-          {
-            "id": "p0_a1",
-            "x": 51,
-            "y": 18,
-            "dir": 1,
-            "ruleOverride": null
-          },
-          {
-            "id": "p0_a2",
-            "x": 51,
-            "y": 32,
+            "x": 20,
+            "y": 25,
             "dir": 2,
             "ruleOverride": null
           },
           {
-            "id": "p0_a3",
-            "x": 40,
-            "y": 42,
-            "dir": 3,
+            "id": "p0_a1",
+            "x": 20,
+            "y": 30,
+            "dir": 2,
+            "ruleOverride": null
+          },
+          {
+            "id": "p0_a2",
+            "x": 20,
+            "y": 35,
+            "dir": 2,
             "ruleOverride": null
           }
         ]
       },
       {
         "id": "player_1",
-        "name": "P2",
+        "name": "Right",
         "color": "#4DA8FF",
         "ruleId": "spiral",
         "startHp": 3,
-        "spawnPattern": "radial",
-        "antCount": 4,
+        "spawnPattern": "manual",
         "ants": [
           {
             "id": "p1_a0",
-            "x": 30,
-            "y": 42,
+            "x": 60,
+            "y": 25,
             "dir": 0,
             "ruleOverride": null
           },
           {
             "id": "p1_a1",
-            "x": 19,
-            "y": 32,
-            "dir": 1,
+            "x": 60,
+            "y": 30,
+            "dir": 0,
             "ruleOverride": null
           },
           {
             "id": "p1_a2",
-            "x": 19,
-            "y": 18,
-            "dir": 2,
-            "ruleOverride": null
-          },
-          {
-            "id": "p1_a3",
-            "x": 30,
-            "y": 8,
-            "dir": 3,
+            "x": 60,
+            "y": 35,
+            "dir": 0,
             "ruleOverride": null
           }
         ]
@@ -98,11 +85,11 @@
     "damageCapEnabled": true,
     "collisionCooldownTicks": 5,
     "birthEnabled": true,
-    "birthMinNeighbors": 2,
-    "birthCooldownTicks": 20,
-    "maxAntsPerPlayer": 25,
-    "hybridChance": 0.15,
-    "wildBirthChance": 0.05,
+    "birthMinNeighbors": 3,
+    "birthCooldownTicks": 25,
+    "maxAntsPerPlayer": 20,
+    "hybridChance": 0.1,
+    "wildBirthChance": 0,
     "showGlow": true,
     "showTrails": true,
     "showHpDots": true,
@@ -111,19 +98,19 @@
     "trailDecay": 0.94,
     "baseTps": 15,
     "speedMultiplier": 1,
-    "seed": 400,
+    "seed": 5002,
     "mutation": {
-      "enabled": false,
-      "haloEnabled": false,
-      "haloMinNeighbors": 6,
-      "mirrorEnabled": false,
-      "mirrorRadius": 2,
+      "enabled": true,
+      "haloEnabled": true,
+      "haloMinNeighbors": 5,
+      "mirrorEnabled": true,
+      "mirrorRadius": 4,
       "pathEnabled": false,
       "pathStraightTicks": 10
     },
     "winCondition": {
-      "kind": "none",
-      "threshold": 5
+      "kind": "n_mutants_total",
+      "threshold": 3
     }
   }
 }
