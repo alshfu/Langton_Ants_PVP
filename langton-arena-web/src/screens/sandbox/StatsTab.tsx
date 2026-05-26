@@ -1,13 +1,14 @@
 // src/screens/sandbox/StatsTab.tsx
 //
-// Live статистика симуляции. Day 2 версия:
-// - Totals секция (tick, births, deaths, captures, clashes, hybrids, wilds)
-// - Per-player карточки (alive, territory %, kills, born, lost)
-// - Sparkline и Territory chart — добавляются в Day 3
+// Live статистика симуляции — Day 3 (финал Этапа 2).
+// Содержит: totals секция, territory chart, per-player карточки со sparkline.
 
+import { useMemo } from 'react';
 import { useTheme } from '@theme/ThemeProvider';
 import { useAppState } from '@state/AppStateProvider';
 import { useLiveStats } from '@state/LiveStatsContext';
+import { TerritoryChart } from '@components/TerritoryChart';
+import { Sparkline } from '@components/Sparkline';
 import { Section, PlayerSwatch } from './_shared';
 
 export function StatsTab() {
@@ -16,6 +17,12 @@ export function StatsTab() {
   const stats = useLiveStats();
   const { players } = state.sandbox;
   const isRunning = state.sandboxRuntime.mode === 'run';
+
+  // Цвета игроков для chart
+  const playerInfo = useMemo(
+    () => players.map((p) => ({ id: p.id, color: p.color, name: p.name })),
+    [players],
+  );
 
   return (
     <div>
@@ -41,9 +48,29 @@ export function StatsTab() {
         <StatRow label="Wilds"    value={stats.totals.wilds}    color="#8E8E93" />
       </Section>
 
+      <Section title={`Territory over time · ${stats.territoryHistory.length} samples`}>
+        <div style={{
+          padding: 8,
+          background: T.bg, borderRadius: T.radiusSm,
+          border: `1px solid ${T.border}`,
+        }}>
+          <TerritoryChart
+            history={stats.territoryHistory}
+            players={playerInfo}
+            width={288}
+            height={140}
+            fg={T.textMuted}
+          />
+        </div>
+      </Section>
+
       <Section title="By player">
         {players.map((p) => {
           const ps = stats.perPlayer[p.id];
+          // История этого игрока для sparkline
+          const playerHistory = stats.territoryHistory
+            .map((pt) => pt.byPlayer[p.id] ?? 0);
+
           if (!ps) {
             return (
               <PlayerCard key={p.id} color={p.color} name={p.name} ruleId={p.ruleId}>
@@ -53,9 +80,10 @@ export function StatsTab() {
               </PlayerCard>
             );
           }
+
           return (
             <PlayerCard key={p.id} color={p.color} name={p.name} ruleId={p.ruleId}>
-              {/* Territory bar */}
+              {/* Territory progress bar */}
               <div style={{
                 marginTop: 4, height: 4, borderRadius: 2,
                 background: T.bgOverlay, overflow: 'hidden',
@@ -67,6 +95,19 @@ export function StatsTab() {
                   transition: 'width .2s',
                 }}/>
               </div>
+
+              {/* Mini sparkline of territory history */}
+              {playerHistory.length > 1 && (
+                <div style={{ marginTop: 6 }}>
+                  <Sparkline
+                    values={playerHistory}
+                    color={p.color}
+                    width={300}
+                    height={28}
+                  />
+                </div>
+              )}
+
               <div style={{
                 display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6,
                 marginTop: 8, fontSize: 10, fontFamily: 'JetBrains Mono, monospace',
@@ -82,22 +123,6 @@ export function StatsTab() {
           );
         })}
       </Section>
-
-      {stats.tick > 0 && (
-        <Section title="History">
-          <div style={{
-            padding: 10, fontSize: 11, color: T.textMuted,
-            fontFamily: 'JetBrains Mono, monospace',
-            background: T.bgOverlay, borderRadius: T.radiusSm,
-          }}>
-            {stats.territoryHistory.length} samples · last {stats.territoryHistory.length * 5} ticks
-            <br/>
-            <span style={{ color: T.textDim }}>
-              (chart will appear here — Day 3)
-            </span>
-          </div>
-        </Section>
-      )}
     </div>
   );
 }
