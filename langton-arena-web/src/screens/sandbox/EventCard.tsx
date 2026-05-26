@@ -20,6 +20,7 @@ const EVENT_LABELS: Record<LogEventType, string> = {
   birth:   'birth',
   hybrid:  'hybrid',
   wild:    'wild',
+  mutant:  'mutant',
 };
 
 export function EventCard({ event, onJumpTo }: EventCardProps) {
@@ -36,6 +37,7 @@ export function EventCard({ event, onJumpTo }: EventCardProps) {
       case 'birth':   return T.success;
       case 'hybrid':  return '#C77DFF';
       case 'wild':    return '#8E8E93';
+      case 'mutant':  return '#FFD60A';     // Stage 5: золото
     }
   })();
 
@@ -55,6 +57,7 @@ export function EventCard({ event, onJumpTo }: EventCardProps) {
       case 'birth':   return `${playerName} ant born`;
       case 'hybrid':  return `${playerName} hybrid born`;
       case 'wild':    return `wild ant born`;
+      case 'mutant':  return `${playerName} mutant (${event.meta?.cause ?? '?'})`;
     }
   })();
 
@@ -66,9 +69,7 @@ export function EventCard({ event, onJumpTo }: EventCardProps) {
         display: 'flex', alignItems: 'center', gap: 8,
         padding: '6px 8px',
         background: T.bgOverlay,
-        borderTop: 'none',
-        borderRight: 'none',
-        borderBottom: 'none',
+        border: 'none',
         borderLeft: `2px solid ${dotColor}`,
         borderRadius: T.radiusSm,
         cursor: 'pointer',

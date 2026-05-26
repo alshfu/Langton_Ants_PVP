@@ -1,11 +1,53 @@
 {
   "version": 1,
   "presets": [
-    { "id": "two-player-faceoff", "file": "two-player-faceoff.json" },
-    { "id": "four-corners",       "file": "four-corners.json" },
-    { "id": "chaos-eight",        "file": "chaos-eight.json" },
-    { "id": "birth-showcase",     "file": "birth-showcase.json" },
-    { "id": "wild-storm",         "file": "wild-storm.json" },
-    { "id": "lone-wolf",          "file": "lone-wolf.json" }
+    {
+      "id": "two-player-faceoff",
+      "file": "two-player-faceoff.json"
+    },
+    {
+      "id": "four-corners",
+      "file": "four-corners.json"
+    },
+    {
+      "id": "chaos-eight",
+      "file": "chaos-eight.json"
+    },
+    {
+      "id": "birth-showcase",
+      "file": "birth-showcase.json"
+    },
+    {
+      "id": "wild-storm",
+      "file": "wild-storm.json"
+    },
+    {
+      "id": "lone-wolf",
+      "file": "lone-wolf.json"
+    },
+    {
+      "id": "halo-garden",
+      "file": "halo-garden.json"
+    },
+    {
+      "id": "mirror-twin",
+      "file": "mirror-twin.json"
+    },
+    {
+      "id": "snowflake",
+      "file": "snowflake.json"
+    },
+    {
+      "id": "path-marathon",
+      "file": "path-marathon.json"
+    },
+    {
+      "id": "quadrant-mandala",
+      "file": "quadrant-mandala.json"
+    },
+    {
+      "id": "chaos-vs-order",
+      "file": "chaos-vs-order.json"
+    }
   ]
 }

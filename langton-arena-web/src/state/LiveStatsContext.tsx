@@ -50,9 +50,17 @@ export function useLiveStats(): SandboxLiveStats {
       tick: 0,
       perPlayer: {},
       territoryHistory: [],
-      totals: { births: 0, deaths: 0, captures: 0, clashes: 0, hybrids: 0, wilds: 0 },
+      totals: { births: 0, deaths: 0, captures: 0, clashes: 0, hybrids: 0, wilds: 0, mutants: 0 },
       events: [],
       highlights: [],
+      match: {
+        finished: false,
+        winnerId: null,
+        winnerName: null,
+        reason: '',
+        finishedAtTick: 0,
+        bannerVisible: false,
+      },
     };
   }
   return ctx.stats;

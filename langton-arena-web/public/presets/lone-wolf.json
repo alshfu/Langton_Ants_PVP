@@ -51,6 +51,19 @@
     "trailDecay": 0.94,
     "baseTps": 30,
     "speedMultiplier": 1,
-    "seed": 1
+    "seed": 1,
+    "mutation": {
+      "enabled": false,
+      "haloEnabled": false,
+      "haloMinNeighbors": 6,
+      "mirrorEnabled": false,
+      "mirrorRadius": 2,
+      "pathEnabled": false,
+      "pathStraightTicks": 10
+    },
+    "winCondition": {
+      "kind": "none",
+      "threshold": 5
+    }
   }
 }

@@ -23,6 +23,12 @@ export interface Ant {
   dead?: boolean;
   isHybrid?: boolean;
   isWild?: boolean;
+  /** Stage 5: мутант — родился при выполнении одного из mutation conditions. */
+  isMutant?: boolean;
+  /** Stage 5: какое условие сработало. Приоритет halo > mirror > path. */
+  mutantCause?: 'halo' | 'mirror' | 'path';
+  /** Stage 5: счётчик тиков подряд без damage (для условия Path). */
+  straightTicks?: number;
 }
 
 export interface BirthConfig {
@@ -34,6 +40,15 @@ export interface BirthConfig {
   wildChance: number;
   /** Stage 2: если true — игнорируется maxAntsPerPlayer; cap = w*h - 1. */
   unlimited?: boolean;
+  /** Stage 5: Mutation conditions. Если объект не передан — мутации выключены. */
+  mutation?: {
+    haloEnabled: boolean;
+    haloMinNeighbors: number;
+    mirrorEnabled: boolean;
+    mirrorRadius: number;
+    pathEnabled: boolean;
+    pathStraightTicks: number;
+  };
 }
 
 export interface SimState {
@@ -61,7 +76,12 @@ export interface StepEvents {
   collisions: Array<{ x: number; y: number; antIds: string[] }>;
   damage: Array<{ id: string; owner: number; hp: number; enemies: number }>;
   deaths: Array<{ id: string; owner: number; x: number; y: number }>;
-  births: Array<{ id: string; owner: number; x: number; y: number; isHybrid: boolean; isWild: boolean }>;
+  births: Array<{
+    id: string; owner: number; x: number; y: number;
+    isHybrid: boolean; isWild: boolean;
+    isMutant?: boolean;
+    mutantCause?: 'halo' | 'mirror' | 'path';
+  }>;
 }
 
 export interface MakeStateConfig {
@@ -190,6 +210,7 @@ export function stepLangton(sim: SimState): StepEvents {
       const dmg = sim.damageCapEnabled ? Math.min(1, enemies) : enemies;
       a.hp -= dmg;
       a.lastDamageTick = sim.tick;
+      a.straightTicks = 0; // Stage 5: сброс при damage
       events.damage.push({ id: a.id, owner: a.owner, hp: a.hp, enemies });
 
       if (a.hp <= 0 && !a.dead) {
@@ -197,6 +218,14 @@ export function stepLangton(sim: SimState): StepEvents {
         events.deaths.push({ id: a.id, owner: a.owner, x: a.x, y: a.y });
       }
     }
+  }
+
+  // ─── 2.5. Stage 5: инкремент straightTicks для живых не получивших damage ─
+  // Используется для condition Path в processBirths.
+  for (const a of ants) {
+    if (a.dead) continue;
+    if (a.lastDamageTick === sim.tick) continue; // только что получил damage — пропускаем
+    a.straightTicks = (a.straightTicks ?? 0) + 1;
   }
 
   // ─── 3. Рождение (детерминированные правила) ──────────────────────────────
@@ -323,12 +352,59 @@ export function stepLangton(sim: SimState): StepEvents {
         }
       }
 
+      // ─── Stage 5: Mutation conditions ─────────────────────────────────
+      // Проверяются независимо от hybrid/wild. Можно быть mutant + hybrid.
+      // Приоритет при совпадении: halo > mirror > path.
+      let isMutant = false;
+      let mutantCause: 'halo' | 'mirror' | 'path' | undefined;
+      const m = bc.mutation;
+      if (m) {
+        // Halo: своих в 8-окрестности клетки рождения
+        if (m.haloEnabled) {
+          let own = 0;
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const nx = (spot.x + dx + w) % w;
+            const ny = (spot.y + dy + h) % h;
+            if (owner[ny * w + nx] === ownerId + 1) own++;
+          }
+          if (own >= m.haloMinNeighbors) {
+            isMutant = true;
+            mutantCause = 'halo';
+          }
+        }
+        // Mirror: точка рождения симметрична через врага в радиусе R
+        if (!isMutant && m.mirrorEnabled) {
+          for (const other of ants) {
+            if (other.dead || other.owner === ownerId || other.owner === 255) continue;
+            const dx = Math.min(Math.abs(spot.x - other.x), w - Math.abs(spot.x - other.x));
+            const dy = Math.min(Math.abs(spot.y - other.y), h - Math.abs(spot.y - other.y));
+            const dist = Math.max(dx, dy);
+            if (dist > m.mirrorRadius) continue;
+            const expectedX = (2 * other.x - chosen.x + w) % w;
+            const expectedY = (2 * other.y - chosen.y + h) % h;
+            if (expectedX === spot.x && expectedY === spot.y) {
+              isMutant = true;
+              mutantCause = 'mirror';
+              break;
+            }
+          }
+        }
+        // Path: родитель N+ тиков без damage
+        if (!isMutant && m.pathEnabled) {
+          if ((chosen.straightTicks ?? 0) >= m.pathStraightTicks) {
+            isMutant = true;
+            mutantCause = 'path';
+          }
+        }
+      }
+
       const newAnt: Ant = {
         id: `birth_${sim.tick}_${ants.length}`,
         owner: newOwner,
         x: spot.x,
         y: spot.y,
-        dir: chosen.dir,         // как у родителя
+        dir: chosen.dir,
         rule: newRule,
         hp: 3,
         maxHp: 3,
@@ -336,11 +412,15 @@ export function stepLangton(sim: SimState): StepEvents {
         bornAt: sim.tick,
         isHybrid,
         isWild,
+        isMutant,
+        mutantCause,
+        straightTicks: 0,
       };
       ants.push(newAnt);
       sim.lastBirthTickByOwner[ownerId] = sim.tick;
       events.births.push({
-        id: newAnt.id, owner: newOwner, x: spot.x, y: spot.y, isHybrid, isWild,
+        id: newAnt.id, owner: newOwner, x: spot.x, y: spot.y,
+        isHybrid, isWild, isMutant, mutantCause,
       });
     }
   }

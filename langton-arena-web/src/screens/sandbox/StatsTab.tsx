@@ -138,6 +138,13 @@ export function StatsTab({ onJumpTo }: StatsTabProps = {}) {
                 <Mini label="born"   value={ps.born.toString()} color={T.success} />
                 <Mini label="lost"   value={ps.lost.toString()} color={T.danger} />
                 <Mini label="kills"  value={ps.kills.toString()} color={T.warning} />
+                {(ps.mutants > 0 || ps.mutantsAlive > 0) && (
+                  <Mini
+                    label="mut"
+                    value={`${ps.mutants} (${ps.mutantsAlive} alive)`}
+                    color="#FFD60A"
+                  />
+                )}
               </div>
             </PlayerCard>
           );

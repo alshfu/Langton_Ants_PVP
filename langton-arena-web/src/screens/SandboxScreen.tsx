@@ -43,10 +43,13 @@ import { VisualTab } from './sandbox/VisualTab';
 import { PresetsTab } from './sandbox/PresetsTab';
 import { StatsTab } from './sandbox/StatsTab';
 import { EventsTab } from './sandbox/EventsTab';
+import { MutationsTab } from './sandbox/MutationsTab';
 import { TransportBar } from './sandbox/TransportBar';
 import { LiveStatsProvider } from '@state/LiveStatsContext';
 import { computeCellCountsByOwner, computeAliveAntsByOwner } from '@lib/computeStats';
 import { computeAllHighlights } from '@lib/computeHighlights';
+import { computeMatchResult } from '@lib/computeMatchResult';
+import { MatchBanner } from '@components/MatchBanner';
 
 export function SandboxScreen() {
   const { tokens: T } = useTheme();
@@ -66,27 +69,38 @@ export function SandboxScreen() {
   // liveStats обновляется только каждые 5 тиков, чтобы не дёргать UI слишком часто.
   const counters = useRef({
     perPlayer: new Map<string, PlayerLiveStats>(),
-    totals: { births: 0, deaths: 0, captures: 0, clashes: 0, hybrids: 0, wilds: 0 },
+    totals: { births: 0, deaths: 0, captures: 0, clashes: 0, hybrids: 0, wilds: 0, mutants: 0 },
   });
 
   const emptyPlayerStats = (): PlayerLiveStats => ({
     alive: 0, born: 0, lost: 0, captures: 0, kills: 0,
     territoryPct: 0, cellsOwned: 0,
+    mutants: 0, mutantsAlive: 0,
   });
 
   const resetCounters = useCallback(() => {
     counters.current.perPlayer = new Map();
     cfg.players.forEach((p) => counters.current.perPlayer.set(p.id, emptyPlayerStats()));
-    counters.current.totals = { births: 0, deaths: 0, captures: 0, clashes: 0, hybrids: 0, wilds: 0 };
+    counters.current.totals = { births: 0, deaths: 0, captures: 0, clashes: 0, hybrids: 0, wilds: 0, mutants: 0 };
   }, [cfg.players]);
+
+  const emptyMatch = (): SandboxLiveStats['match'] => ({
+    finished: false,
+    winnerId: null,
+    winnerName: null,
+    reason: '',
+    finishedAtTick: 0,
+    bannerVisible: false,
+  });
 
   const [liveStats, setLiveStats] = useState<SandboxLiveStats>(() => ({
     tick: 0,
     perPlayer: {},
     territoryHistory: [],
-    totals: { births: 0, deaths: 0, captures: 0, clashes: 0, hybrids: 0, wilds: 0 },
+    totals: { births: 0, deaths: 0, captures: 0, clashes: 0, hybrids: 0, wilds: 0, mutants: 0 },
     events: [],
     highlights: [],
+    match: emptyMatch(),
   }));
 
   // Stage 4: events + heatmap в refs (часто меняются, не должны re-render всё)
@@ -171,8 +185,22 @@ export function SandboxScreen() {
       hybridChance:     cfg.hybridChance,
       wildChance:       cfg.wildBirthChance,
       unlimited:        cfg.unlimitedAnts,
+      mutation:         cfg.mutation.enabled ? {
+        haloEnabled:        cfg.mutation.haloEnabled,
+        haloMinNeighbors:   cfg.mutation.haloMinNeighbors,
+        mirrorEnabled:      cfg.mutation.mirrorEnabled,
+        mirrorRadius:       cfg.mutation.mirrorRadius,
+        pathEnabled:        cfg.mutation.pathEnabled,
+        pathStraightTicks:  cfg.mutation.pathStraightTicks,
+      } : undefined,
     };
-  }, [cfg.birthEnabled, cfg.birthMinNeighbors, cfg.birthCooldownTicks, cfg.maxAntsPerPlayer, cfg.hybridChance, cfg.wildBirthChance, cfg.unlimitedAnts]);
+  }, [
+    cfg.birthEnabled, cfg.birthMinNeighbors, cfg.birthCooldownTicks,
+    cfg.maxAntsPerPlayer, cfg.hybridChance, cfg.wildBirthChance, cfg.unlimitedAnts,
+    cfg.mutation.enabled, cfg.mutation.haloEnabled, cfg.mutation.haloMinNeighbors,
+    cfg.mutation.mirrorEnabled, cfg.mutation.mirrorRadius,
+    cfg.mutation.pathEnabled, cfg.mutation.pathStraightTicks,
+  ]);
 
   const effectiveTps = cfg.baseTps * cfg.speedMultiplier;
   const cellSize = Math.max(3, Math.min(14, Math.floor(800 / cfg.width)));
@@ -276,9 +304,10 @@ export function SandboxScreen() {
       tick: 0,
       perPlayer: {},
       territoryHistory: [],
-      totals: { births: 0, deaths: 0, captures: 0, clashes: 0, hybrids: 0, wilds: 0 },
+      totals: { births: 0, deaths: 0, captures: 0, clashes: 0, hybrids: 0, wilds: 0, mutants: 0 },
       events: [],
       highlights: [],
+      match: emptyMatch(),
     });
   }, [statsTick, sx, resetCounters]);
 
@@ -462,6 +491,22 @@ export function SandboxScreen() {
         tick, type, x: e.x, y: e.y, ownerIdx: e.owner,
         meta: { isHybrid: e.isHybrid ?? false, isWild: e.isWild ?? false },
       });
+      // Stage 5: отдельное mutant событие если рождение породило мутанта
+      if (e.isMutant) {
+        pushEvent({
+          id: ++eventIdCounter.current,
+          tick, type: 'mutant', x: e.x, y: e.y, ownerIdx: e.owner,
+          meta: { cause: e.mutantCause ?? 'unknown' },
+        });
+        c.totals.mutants++;
+        if (e.owner < cfg.players.length) {
+          const p = cfg.players[e.owner];
+          if (p) {
+            const stats = c.perPlayer.get(p.id);
+            if (stats) stats.mutants++;
+          }
+        }
+      }
     }
   }, [cfg.players]);
 
@@ -481,6 +526,12 @@ export function SandboxScreen() {
 
     const cellCounts = computeCellCountsByOwner(sim);
     const aliveByOwner = computeAliveAntsByOwner(sim);
+    // Stage 5: считаем живых мутантов на игрока
+    const mutantsAliveByOwner = new Map<number, number>();
+    for (const a of sim.ants) {
+      if (a.dead || !a.isMutant) continue;
+      mutantsAliveByOwner.set(a.owner, (mutantsAliveByOwner.get(a.owner) ?? 0) + 1);
+    }
     const totalCells = sim.w * sim.h;
 
     // Обновляем per-player stats: alive, cellsOwned, territoryPct
@@ -496,6 +547,7 @@ export function SandboxScreen() {
         alive: aliveByOwner.get(pi) ?? 0,
         cellsOwned: cells,
         territoryPct: pct,
+        mutantsAlive: mutantsAliveByOwner.get(pi) ?? 0,
       };
       historyPoint[p.id] = pct;
     });
@@ -525,9 +577,17 @@ export function SandboxScreen() {
         totals: { ...counters.current.totals },
         events: [...eventsRef.current],
         highlights: nextHighlights,
+        // Stage 5: match update
+        match: computeMatchResult({
+          currentTick: sim.tick,
+          winCondition: cfg.winCondition,
+          perPlayer,
+          players: cfg.players.map((p) => ({ id: p.id, name: p.name })),
+          prevMatch: prev.match,
+        }),
       };
     });
-  }, [cfg.players]);
+  }, [cfg.players, cfg.winCondition]);
 
   const onJumpToTick = useCallback((targetTick: number) => {
     const sim = fieldRef.current?.getSim();
@@ -548,7 +608,8 @@ export function SandboxScreen() {
       case 'events':  return <EventsTab onJumpTo={onJumpToTick} />;
       case 'field':   return <FieldTab />;
       case 'combat':  return <CombatTab />;
-      case 'birth':   return <BirthTab />;
+      case 'birth':     return <BirthTab />;
+      case 'mutations': return <MutationsTab />;
       case 'visual':  return <VisualTab />;
       case 'presets': return <PresetsTab />;
     }
@@ -631,6 +692,9 @@ export function SandboxScreen() {
           <Chip color="#C77DFF" size="sm">{cfg.players.length}p · {totalAnts} ants</Chip>
           {aliveCount > 1000 && (
             <Chip color={T.warning} filled size="sm">⚠ {aliveCount} alive — may lag</Chip>
+          )}
+          {liveStats.totals.mutants > 0 && (
+            <Chip color="#FFD60A" filled size="sm">🧬 {liveStats.totals.mutants} mutants</Chip>
           )}
         </div>
       </div>
@@ -719,6 +783,14 @@ export function SandboxScreen() {
                 />
               );
             })()}
+            <MatchBanner
+              match={liveStats.match}
+              onContinue={() => setLiveStats((prev) => ({
+                ...prev,
+                match: { ...prev.match, bannerVisible: false },
+              }))}
+              onReset={switchToEdit}
+            />
           </div>
         </div>
 

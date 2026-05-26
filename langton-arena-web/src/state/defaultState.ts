@@ -74,6 +74,21 @@ export function defaultSandbox(): SandboxConfig {
     baseTps: 15,
     speedMultiplier: 1,
     seed,
+
+    // Stage 5 defaults
+    mutation: {
+      enabled: false,
+      haloEnabled: false,
+      haloMinNeighbors: 6,
+      mirrorEnabled: false,
+      mirrorRadius: 2,
+      pathEnabled: false,
+      pathStraightTicks: 10,
+    },
+    winCondition: {
+      kind: 'none',
+      threshold: 5,
+    },
   };
 }
 
@@ -87,9 +102,17 @@ export function defaultRuntimeState(activePlayerId: string | null): SandboxRunti
       tick: 0,
       perPlayer: {},
       territoryHistory: [],
-      totals: { births: 0, deaths: 0, captures: 0, clashes: 0, hybrids: 0, wilds: 0 },
+      totals: { births: 0, deaths: 0, captures: 0, clashes: 0, hybrids: 0, wilds: 0, mutants: 0 },
       events: [],
       highlights: [],
+      match: {
+        finished: false,
+        winnerId: null,
+        winnerName: null,
+        reason: '',
+        finishedAtTick: 0,
+        bannerVisible: false,
+      },
     },
   };
 }

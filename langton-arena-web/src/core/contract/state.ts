@@ -93,6 +93,40 @@ export interface SandboxConfig {
   baseTps: number;
   speedMultiplier: number;
   seed: number;
+
+  // ── Stage 5: Mutation Lab ──────────────────────────────────────────────────
+  /** Mutation conditions. Включаются независимо. */
+  mutation: MutationConfig;
+  /** Win condition matchа. */
+  winCondition: WinCondition;
+}
+
+export interface MutationConfig {
+  /** Master toggle — если false, ни одно условие не проверяется. */
+  enabled: boolean;
+  // Halo: рождение окружено N+ клетками своего цвета
+  haloEnabled: boolean;
+  haloMinNeighbors: number;     // 4..8, default 6
+  // Mirror: точка рождения симметрична через врага в радиусе R
+  mirrorEnabled: boolean;
+  mirrorRadius: number;          // 1..4, default 2
+  // Path: родитель N+ тиков подряд без damage
+  pathEnabled: boolean;
+  pathStraightTicks: number;     // 3..30, default 10
+}
+
+export type WinConditionKind =
+  | 'none'
+  | 'time'
+  | 'first_mutant'
+  | 'n_mutants_total'
+  | 'n_mutants_single'
+  | 'survival';
+
+export interface WinCondition {
+  kind: WinConditionKind;
+  /** Параметр N для time / n_mutants_total / n_mutants_single. */
+  threshold: number;
 }
 
 // ─── Stage 2: Live Stats ─────────────────────────────────────────────────────
@@ -105,11 +139,16 @@ export interface PlayerLiveStats {
   kills: number;
   territoryPct: number;
   cellsOwned: number;
+  // ── Stage 5 ────────────────────────────────────────────
+  /** Всего родилось мутантов у игрока за матч. */
+  mutants: number;
+  /** Сколько живых мутантов сейчас. */
+  mutantsAlive: number;
 }
 
 // ─── Stage 4: Analytics ──────────────────────────────────────────────────────
 
-export type LogEventType = 'capture' | 'clash' | 'death' | 'birth' | 'hybrid' | 'wild';
+export type LogEventType = 'capture' | 'clash' | 'death' | 'birth' | 'hybrid' | 'wild' | 'mutant';
 
 export interface LogEvent {
   /** Глобальный счётчик для React key. */
@@ -161,12 +200,27 @@ export interface SandboxLiveStats {
     clashes: number;
     hybrids: number;
     wilds: number;
+    mutants: number;        // Stage 5
   };
   // ── Stage 4 ────────────────────────────────────────────
   /** Ring buffer событий, max 500. */
   events: LogEvent[];
   /** Highlights пересчитываются каждые 50 тиков. */
   highlights: Highlight[];
+  // ── Stage 5 ────────────────────────────────────────────
+  /** Текущее состояние матча — обновляется в onTick. */
+  match: MatchResult;
+}
+
+export interface MatchResult {
+  finished: boolean;
+  winnerId: string | null;
+  winnerName: string | null;
+  /** Человеко-читаемая причина: "5 mutants total", "last survivor" и т.д. */
+  reason: string;
+  finishedAtTick: number;
+  /** Видно ли banner поверх канваса. Click Continue → bannerVisible=false. */
+  bannerVisible: boolean;
 }
 
 export interface SandboxRuntimeState {

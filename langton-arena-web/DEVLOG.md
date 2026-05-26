@@ -1053,6 +1053,187 @@ Bundle 100KB JS / 30KB gzip. Determinism 6/6 hashes стабильны. Smoke 6/
 
 ---
 
+## Неделя 13 · Этап 5 — Mutation Lab
+
+### День 48 — Mutation conditions + engine
+
+Третья «крупная идея» от тимлида (записываю чтобы не забыть в книге):
+
+> разрешим игроку акамулировать муравьёв в мешке и выпускать на поле
+> по мере не обходимости в нужном игроку месте
+
+Это **другой проект** по объёму. Я предложил разделить на два этапа:
+**Этап 5 — Mutation Lab** (mutation conditions + win conditions), **Этап 6
+— Reserve & Deploy** (десант). Тимлид согласился (вариант A). Этот pivot
+третьим в счёте — после open-source (15), sandbox-as-lab (36),
+determinism (42), теперь sandbox-as-game-design-tool (48).
+
+Технически День 48 был «инфраструктурный»: типы, engine, накопление
+events. UI завтра.
+
+Расширение `Ant`: добавлены `isMutant: boolean`, `mutantCause: 'halo' |
+'mirror' | 'path'`, `straightTicks: number`. **Mutant как независимый
+флаг** (вариант A в ответе тимлида). Муравей может быть `isHybrid &&
+isMutant` одновременно — это правильно для game design: даёт
+3 независимые оси.
+
+Engine изменения:
+1. Между блоком damage и блоком birth — новый блок «инкремент
+   straightTicks для всех живых не получивших damage». Это O(N ants)
+   overhead на каждом тике — ~1-2%, незаметно.
+2. В `processBirths` — проверка 3 mutation conditions. Приоритет halo
+   > mirror > path для назначения `mutantCause`.
+3. `StepEvents.births` теперь содержит `isMutant`/`mutantCause`.
+
+**Path condition definition decision.** В ТЗ я писал «N тиков без
+поворота». Но в Langton'е каждый шаг — поворот по правилу RL/LR. Это
+бы значило «never». Переопределил: `straightTicks` инкрементится
+**если муравей не получил damage в этом тике**, сбрасывается при
+damage. Биологически: «рождение от стабильного, никем не атакуемого
+родителя». Это лучше — даёт читаемое условие которое реально срабатывает
+в normal play.
+
+TypeScript заслужил отдельную благодарность сегодня. Расширение
+`SandboxConfig` с `mutation` сразу подсветило 4 места где нужно
+обновить дефолты и инициализаторы. Без strict mode это были бы
+runtime баги.
+
+6 unit-тестов на conditions. Все passed на первой попытке кроме одного
+— я ошибся в логике негативного теста halo (поставил низкий порог
+рождения, муравьи размножились и обнаружили halo условие за 50 тиков).
+Переписал тест с `birthConfig: null` — без рождения не может быть
+мутантов вообще. Тривиально, но правильно.
+
+Hashes 6/6 пресетов **остались идентичными** после добавления Stage 5
+кода — это значит mutation conditions **детерминированы** и не
+ломают существующие пресеты.
+
+### День 49 — Win conditions + match state
+
+5 алгоритмов в `computeMatchResult.ts` — все чистые функции, легко
+тестируются. 13 unit-тестов покрывают позитивные кейсы, edge cases
+(пустой history, draw при all dead, idempotency).
+
+**Главное архитектурное решение.** В начале `computeMatchResult`:
+```typescript
+if (prevMatch.finished) return prevMatch;
+```
+
+Match один раз заканчивается. После win — не пересчитываем. Banner
+показывается **только один раз**. Если позже другой игрок «обогнал» —
+это не имеет значения. Это **семантика лаборатории**: «who wins first».
+Не «who is currently leading».
+
+В UI — `MatchBanner.tsx` поверх канваса. Полупрозрачный backdrop с
+blur, цвет рамки от winner-цвета. Two buttons: «Continue watching»
+и «New match». Continue не отменяет finished — только скрывает
+banner. New match = switchToEdit.
+
+`describeWinProgress` helper — для отображения live progress в UI.
+«Time limit: 234/500 ticks» / «Alpha 2/5 mutants total» — pure
+formatting функция, легко тестируется.
+
+В onTick я добавил `match: computeMatchResult({prevMatch: prev.match,
+...})` — цепочка через React state. Это значит match **автоматически**
+recalculate при step back: `prev.match` берётся из старого state и
+если оно был not-finished — пересчитывается заново.
+
+### День 50 — UI: MutationsTab + золотая обводка
+
+Самый «визуальный» день этапа.
+
+`MutationsTab.tsx` — 5 секций:
+1. **Master toggle** — общий on/off для всех mutation conditions
+2. **Halo** — toggle + slider (4..8) + объяснение словами
+3. **Mirror** — toggle + slider (1..4) + объяснение
+4. **Path** — toggle + slider (3..30) + объяснение
+5. **Win condition** — dropdown 6 опций + threshold slider + live progress
+
+Warning chip когда master ON но все 3 conditions OFF — лёгкая
+защита от пользователя «я включил мутации почему ничего не
+происходит».
+
+**Золотая обводка мутанта** в `LangtonField.draw()`. Кольцо радиусом
+1.15×r, толщина масштабируется с cellSize, цвет `#FFD60A`.
+Дополнительно — golden radial gradient если общий glow включён.
+
+Это становится визуальным языком проекта: **золото = достижение /
+победа / мутация**. Тот же `#FFD60A` в:
+- HighlightCard для peak_territory
+- EventCard для type='mutant'
+- MatchBanner accent
+- Chip 🧬 N mutants в top-bar
+- Mini «mut» counter в Stats
+
+Согласованность важнее новизны. Не нужен fancy purple для мутаций
+если у нас уже есть «valuable» цвет.
+
+Tab 'mutations' добавлен в TabStrip между 'birth' и 'visual'.
+Иконка 🧬 (DNA). Теперь 10 табов:
+`Players · Ants · Stats · Events · Field · Combat · Birth ·
+Mutations · Visual · Presets`.
+
+### День 51 — 6 пресетов + закрытие Этапа 5
+
+Расширил `scripts/build-presets.mjs` с поддержкой `mutation`/
+`winCondition` параметров и helper `manualAnts()` для симметричной
+расстановки. **Преимущество**: не пишем JSON руками, генерируем из
+кода.
+
+6 новых пресетов, фокус на **симметрию** (как просил тимлид):
+
+| Preset | Players | Mutation | Win |
+|---|---|---|---|
+| Halo Garden | 4 кругом точки | halo | first_mutant |
+| Mirror Twin | 2 зеркально | halo+mirror | n_mutants_total=3 |
+| Snowflake | 6 радиально (60°) | path | time=500 |
+| Path Marathon | 2 на узком 100×40 | path | first_mutant |
+| Quadrant Mandala | 4 симметрично | все 3 | n_mutants_single=2 |
+| Chaos vs Order | 8 кластерами | все 3 | survival |
+
+Smoke результат: **6/6 пресетов реально рождают мутантов**.
+
+**Технический долг:** mirror condition **никогда** не срабатывает на
+этих пресетах. Это **ожидаемо** — Mirror требует *точной* симметрии
+точки рождения через врага, на детерминированном движке такое
+совпадение очень редкое. Mirror Twin изначально был с mirror only —
+получил 0 мутантов. Добавил halo как backup. Идея пресета сохранилась
+(оба игрока в идентичных halo-ситуациях → bit-identical зеркальные
+мутации одновременно), но **mirror condition в практике мёртв**.
+
+В Этапе 6+ нужно либо:
+- Ослабить mirror (±1 клетка tolerance)
+- Заменить mirror на другое условие
+- Оставить mirror для специальных setup'ов и принять что в общих
+  пресетах он не срабатывает
+
+Записал в backlog.
+
+Determinism check: **12/12 bit-identical** между прогонами. Старые
+6 hash'ей **те же что были** в Дне 43. Это **доказательство** что
+Stage 5 не сломал Stage 3. Манифест в 16 символах × 12 — стоит.
+
+**Этап 5 закрыт.** 19/19 критериев приёмки. Tests 65/65. Build 3.2с.
+Bundle 112 КБ JS / 33 КБ gzip.
+
+**Что Этап 5 дал проекту.** До этапа песочница отвечала на «что
+происходит». После — на **«что должно произойти?»** — то есть
+**game design**. Пользователь задаёт правила (mutation conditions) и
+цель (win condition), запускает, получает математически верный
+результат благодаря детерминизму.
+
+Это и есть «тренажёр для PvP правил» про который тимлид говорил в
+День 36. Лаборатория стала фактической. Теперь можно перебирать
+варианты, тестировать, обоснованно решать «какие правила интересны
+для multiplayer».
+
+Открыт **Этап 6 — Reserve & Deploy** (десант). Backlog в
+`stage6-spec-draft.md` уже зафиксирован — ответы тимлида Q5-Q8
+сохранены. Это первый этап где мы сознательно ломаем чистый
+детерминизм — добавляем real-time inputs игрока.
+
+---
+
 
 ## Благодарности
 

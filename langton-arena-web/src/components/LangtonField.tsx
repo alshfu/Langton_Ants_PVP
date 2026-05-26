@@ -500,6 +500,23 @@ function draw(
       drawShape(ctx, shape, cx, cy, r, color);
     }
 
+    // Stage 5: золотая обводка мутанта поверх тела
+    if (a.isMutant) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 1.15, 0, Math.PI * 2);
+      ctx.strokeStyle = '#FFD60A';
+      ctx.lineWidth = Math.max(1.5, cellSize * 0.12);
+      ctx.stroke();
+      // Дополнительное золотое свечение при включённом glow
+      if (glow) {
+        const goldGrad = ctx.createRadialGradient(cx, cy, r, cx, cy, r * 2.5);
+        goldGrad.addColorStop(0, '#FFD60A30');
+        goldGrad.addColorStop(1, '#FFD60A00');
+        ctx.fillStyle = goldGrad;
+        ctx.fillRect(cx - r * 2.5, cy - r * 2.5, r * 5, r * 5);
+      }
+    }
+
     // Стрелка направления
     if (showDirectionArrows && cellSize >= 6) {
       const [dx, dy] = LA_DIRS[a.dir]!;
