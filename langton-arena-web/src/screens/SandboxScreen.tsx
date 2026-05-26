@@ -234,14 +234,18 @@ export function SandboxScreen() {
 
   // Snapshot history для step back
   const snapshotsRef = useRef<import('@lib/simSnapshot').SnapshotHistory | null>(null);
-  if (!snapshotsRef.current) {
-    // Lazy init
-    import('@lib/simSnapshot').then(({ SnapshotHistory }) => {
-      snapshotsRef.current = new SnapshotHistory(50, 100);
-    });
-  }
   const fieldRef = useRef<import('@components/LangtonField').LangtonFieldHandle | null>(null);
   const [canStepBack, setCanStepBack] = useState(false);
+
+  // Инициализируем SnapshotHistory один раз в useEffect (не в render-теле —
+  // иначе StrictMode вызовет side-effect дважды и создаст лишние экземпляры).
+  useEffect(() => {
+    import('@lib/simSnapshot').then(({ SnapshotHistory }) => {
+      if (!snapshotsRef.current) {
+        snapshotsRef.current = new SnapshotHistory(50, 100);
+      }
+    });
+  }, []);
 
   const onStep = useCallback((n: number) => {
     if (rt.mode === 'edit') {
@@ -277,16 +281,26 @@ export function SandboxScreen() {
     }
     // Восстанавливаем ближайший snapshot
     fieldRef.current?.restoreSnapshot(nearest);
+
+    // Сбрасываем event-счётчики — они накопили события из тиков
+    // которых «больше нет» (будущее относительно targetTick).
+    // После отката статистика начинается заново от этой точки.
+    resetCounters();
+    setLiveStats((prev) => ({
+      ...prev,
+      tick: nearest.tick,
+      totals: { births: 0, deaths: 0, captures: 0, clashes: 0, hybrids: 0, wilds: 0 },
+    }));
+
     // Если нужно — догоняем вперёд до точного tick
     const toCatchUp = targetTick - nearest.tick;
     if (toCatchUp > 0) {
       setStepSignal((prev) => prev + toCatchUp);
     } else {
-      // Просто обновляем stats — без шагов
       setStatsTick(nearest.tick);
     }
     showToast(`Stepped back to tick ${targetTick}`, 'info');
-  }, [showToast]);
+  }, [showToast, resetCounters]);
 
   const onEvents = useCallback((ev: StepEvents) => {
     const c = counters.current;
