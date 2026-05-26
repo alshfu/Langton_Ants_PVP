@@ -1,0 +1,116 @@
+{
+  "id": "birth-showcase",
+  "name": "Birth Showcase",
+  "category": "builtin",
+  "description": "Aggressive reproduction — watch colonies grow",
+  "tags": [
+    "birth",
+    "demo"
+  ],
+  "author": "langton-arena",
+  "config": {
+    "width": 70,
+    "height": 50,
+    "topology": "torus",
+    "bgColor": "#0A081A",
+    "showGrid": false,
+    "players": [
+      {
+        "id": "player_0",
+        "name": "P1",
+        "color": "#FF5470",
+        "ruleId": "classic",
+        "startHp": 3,
+        "spawnPattern": "radial",
+        "antCount": 4,
+        "ants": [
+          {
+            "id": "p0_a0",
+            "x": 40,
+            "y": 8,
+            "dir": 0,
+            "ruleOverride": null
+          },
+          {
+            "id": "p0_a1",
+            "x": 51,
+            "y": 18,
+            "dir": 1,
+            "ruleOverride": null
+          },
+          {
+            "id": "p0_a2",
+            "x": 51,
+            "y": 32,
+            "dir": 2,
+            "ruleOverride": null
+          },
+          {
+            "id": "p0_a3",
+            "x": 40,
+            "y": 42,
+            "dir": 3,
+            "ruleOverride": null
+          }
+        ]
+      },
+      {
+        "id": "player_1",
+        "name": "P2",
+        "color": "#4DA8FF",
+        "ruleId": "spiral",
+        "startHp": 3,
+        "spawnPattern": "radial",
+        "antCount": 4,
+        "ants": [
+          {
+            "id": "p1_a0",
+            "x": 30,
+            "y": 42,
+            "dir": 0,
+            "ruleOverride": null
+          },
+          {
+            "id": "p1_a1",
+            "x": 19,
+            "y": 32,
+            "dir": 1,
+            "ruleOverride": null
+          },
+          {
+            "id": "p1_a2",
+            "x": 19,
+            "y": 18,
+            "dir": 2,
+            "ruleOverride": null
+          },
+          {
+            "id": "p1_a3",
+            "x": 30,
+            "y": 8,
+            "dir": 3,
+            "ruleOverride": null
+          }
+        ]
+      }
+    ],
+    "hpEnabled": true,
+    "damageCapEnabled": true,
+    "collisionCooldownTicks": 5,
+    "birthEnabled": true,
+    "birthMinNeighbors": 2,
+    "birthCooldownTicks": 20,
+    "maxAntsPerPlayer": 25,
+    "hybridChance": 0.15,
+    "wildBirthChance": 0.05,
+    "showGlow": true,
+    "showTrails": true,
+    "showHpDots": true,
+    "showDirectionArrows": false,
+    "antScale": 0.9,
+    "trailDecay": 0.94,
+    "baseTps": 15,
+    "speedMultiplier": 1,
+    "seed": 400
+  }
+}
