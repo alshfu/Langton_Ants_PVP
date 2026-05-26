@@ -19,7 +19,7 @@ interface PresetIndex {
 export async function loadBuiltinPresets(): Promise<BuiltinPreset[]> {
   let manifest: PresetIndex;
   try {
-    const r = await fetch('/presets/index.json');
+    const r = await fetch(`${import.meta.env.BASE_URL}presets/index.json`);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     manifest = await r.json() as PresetIndex;
   } catch (err) {
@@ -29,7 +29,7 @@ export async function loadBuiltinPresets(): Promise<BuiltinPreset[]> {
 
   const results = await Promise.allSettled(
     manifest.presets.map(async (entry) => {
-      const r = await fetch(`/presets/${entry.file}`);
+      const r = await fetch(`${import.meta.env.BASE_URL}presets/${entry.file}`);
       if (!r.ok) throw new Error(`HTTP ${r.status} for ${entry.file}`);
       const data = await r.json() as BuiltinPreset;
       if (!validatePreset(data)) throw new Error(`Invalid format: ${entry.id}`);
