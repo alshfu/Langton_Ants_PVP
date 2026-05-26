@@ -24,6 +24,7 @@ import { useTheme } from '@theme/ThemeProvider';
 import { useT } from '@i18n/I18nProvider';
 import { useAppState } from '@state/AppStateProvider';
 import { LangtonField } from '@components/LangtonField';
+import { HeatmapLegend } from '@components/HeatmapLegend';
 import { LA_RULES } from '@core/langton/rules';
 import { PLAYER_PALETTE } from '@core/shared/constants';
 import { Button } from '@ui/Button';
@@ -31,7 +32,7 @@ import { Eyebrow } from '@ui/Eyebrow';
 import { Chip } from '@ui/Chip';
 
 import type { Ant, BirthConfig, SimState, StepEvents } from '@core/langton/engine';
-import type { SandboxLiveStats, PlayerLiveStats } from '@core/contract/state';
+import type { SandboxLiveStats, PlayerLiveStats, LogEvent } from '@core/contract/state';
 import { TabStrip, type SandboxTabId } from './sandbox/TabStrip';
 import { PlayersTab } from './sandbox/PlayersTab';
 import { AntsTab } from './sandbox/AntsTab';
@@ -41,9 +42,11 @@ import { BirthTab } from './sandbox/BirthTab';
 import { VisualTab } from './sandbox/VisualTab';
 import { PresetsTab } from './sandbox/PresetsTab';
 import { StatsTab } from './sandbox/StatsTab';
+import { EventsTab } from './sandbox/EventsTab';
 import { TransportBar } from './sandbox/TransportBar';
 import { LiveStatsProvider } from '@state/LiveStatsContext';
 import { computeCellCountsByOwner, computeAliveAntsByOwner } from '@lib/computeStats';
+import { computeAllHighlights } from '@lib/computeHighlights';
 
 export function SandboxScreen() {
   const { tokens: T } = useTheme();
@@ -82,13 +85,41 @@ export function SandboxScreen() {
     perPlayer: {},
     territoryHistory: [],
     totals: { births: 0, deaths: 0, captures: 0, clashes: 0, hybrids: 0, wilds: 0 },
+    events: [],
+    highlights: [],
   }));
+
+  // Stage 4: events + heatmap в refs (часто меняются, не должны re-render всё)
+  const eventsRef = useRef<LogEvent[]>([]);
+  const eventIdCounter = useRef(0);
+  const heatmapRef = useRef({
+    w: 0, h: 0,
+    deaths: new Uint32Array(0),
+    captures: new Uint32Array(0),
+    contested: new Uint32Array(0),
+    maxDeaths: 0,
+    maxCaptures: 0,
+    maxContested: 0,
+  });
+  const firstDeathRef = useRef<LogEvent | null>(null); // кэшируем для highlight
 
   // Инициализация счётчиков при изменении списка игроков
   useEffect(() => {
     resetCounters();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cfg.players.length]);
+
+  // Stage 4: переинициализация heatmap при смене размера поля
+  useEffect(() => {
+    const total = cfg.width * cfg.height;
+    heatmapRef.current = {
+      w: cfg.width, h: cfg.height,
+      deaths: new Uint32Array(total),
+      captures: new Uint32Array(total),
+      contested: new Uint32Array(total),
+      maxDeaths: 0, maxCaptures: 0, maxContested: 0,
+    };
+  }, [cfg.width, cfg.height]);
 
   const showToast = useCallback((text: string, kind: 'info' | 'warn' | 'err' = 'info') => {
     setToast({ text, kind });
@@ -209,6 +240,12 @@ export function SandboxScreen() {
       showToast(check.reason ?? 'Cannot run', 'warn');
       return;
     }
+    // Сохраняем initial snapshot (tick=0) чтобы можно было откатиться к началу
+    const sim = fieldRef.current?.getSim();
+    if (sim && snapshotsRef.current && sim.tick === 0) {
+      snapshotsRef.current.capture(sim);
+      setCanStepBack(true);
+    }
     sx.setMode('run');
     sx.setPaused(false);
   }, [validateBeforeRun, sx, showToast]);
@@ -224,28 +261,37 @@ export function SandboxScreen() {
     resetCounters();
     setCanStepBack(false);
     snapshotsRef.current?.clear();
+    // Stage 4 reset
+    eventsRef.current = [];
+    eventIdCounter.current = 0;
+    firstDeathRef.current = null;
+    const hm = heatmapRef.current;
+    hm.deaths.fill(0);
+    hm.captures.fill(0);
+    hm.contested.fill(0);
+    hm.maxDeaths = 0;
+    hm.maxCaptures = 0;
+    hm.maxContested = 0;
     setLiveStats({
       tick: 0,
       perPlayer: {},
       territoryHistory: [],
       totals: { births: 0, deaths: 0, captures: 0, clashes: 0, hybrids: 0, wilds: 0 },
+      events: [],
+      highlights: [],
     });
   }, [statsTick, sx, resetCounters]);
 
   // Snapshot history для step back
   const snapshotsRef = useRef<import('@lib/simSnapshot').SnapshotHistory | null>(null);
+  if (!snapshotsRef.current) {
+    // Lazy init
+    import('@lib/simSnapshot').then(({ SnapshotHistory }) => {
+      snapshotsRef.current = new SnapshotHistory(50, 100);
+    });
+  }
   const fieldRef = useRef<import('@components/LangtonField').LangtonFieldHandle | null>(null);
   const [canStepBack, setCanStepBack] = useState(false);
-
-  // Инициализируем SnapshotHistory один раз в useEffect (не в render-теле —
-  // иначе StrictMode вызовет side-effect дважды и создаст лишние экземпляры).
-  useEffect(() => {
-    import('@lib/simSnapshot').then(({ SnapshotHistory }) => {
-      if (!snapshotsRef.current) {
-        snapshotsRef.current = new SnapshotHistory(50, 100);
-      }
-    });
-  }, []);
 
   const onStep = useCallback((n: number) => {
     if (rt.mode === 'edit') {
@@ -279,30 +325,31 @@ export function SandboxScreen() {
       showToast(`Can't go back to tick ${targetTick} — no snapshot`, 'warn');
       return;
     }
-    // Восстанавливаем ближайший snapshot
     fieldRef.current?.restoreSnapshot(nearest);
+    const toCatchUp = targetTick - nearest.tick;
 
-    // Сбрасываем event-счётчики — они накопили события из тиков
-    // которых «больше нет» (будущее относительно targetTick).
-    // После отката статистика начинается заново от этой точки.
-    resetCounters();
+    // Обрезаем events и territoryHistory до nearest.tick
+    eventsRef.current = eventsRef.current.filter((e) => e.tick <= nearest.tick);
+    // Heatmap не сбрасываем — он накопительный, "история" а не "снимок".
+    // Но строго говоря — следовало бы пересобрать с нуля. Простоты ради — оставим.
+    // TODO Day 4: пересборка heatmap при step back из events.
+
     setLiveStats((prev) => ({
       ...prev,
       tick: nearest.tick,
-      totals: { births: 0, deaths: 0, captures: 0, clashes: 0, hybrids: 0, wilds: 0 },
+      territoryHistory: prev.territoryHistory.filter((pt) => pt.tick <= nearest.tick),
+      events: [...eventsRef.current],
     }));
 
-    // Если нужно — догоняем вперёд до точного tick
-    const toCatchUp = targetTick - nearest.tick;
     if (toCatchUp > 0) {
       setStepSignal((prev) => prev + toCatchUp);
     } else {
       setStatsTick(nearest.tick);
     }
-    showToast(`Stepped back to tick ${targetTick}`, 'info');
-  }, [showToast, resetCounters]);
+    showToast(`← back to tick ${targetTick}`, 'info');
+  }, [showToast]);
 
-  const onEvents = useCallback((ev: StepEvents) => {
+  const onEvents = useCallback((ev: StepEvents, tick: number) => {
     const c = counters.current;
     // Captures — учитываем владельцу
     for (const e of ev.captures) {
@@ -317,7 +364,7 @@ export function SandboxScreen() {
     }
     // Clashes — всегда
     c.totals.clashes += ev.collisions.length;
-    // Deaths — учитываем кому умерло + считаем kills тем кто остался жив в этой клетке
+    // Deaths — учитываем кому умерло
     for (const e of ev.deaths) {
       if (e.owner < cfg.players.length) {
         const p = cfg.players[e.owner];
@@ -328,28 +375,16 @@ export function SandboxScreen() {
         c.totals.deaths++;
       }
     }
-    // Kills вычисляем через collisions: участники коллизии получают +1 kill за каждого
-    // убитого ВРАГА в этой же клетке. Это упрощение: точнее было бы знать кто кого
-    // конкретно — но для high-level статистики достаточно.
+    // Kills через collisions
     for (const clash of ev.collisions) {
       const deadIdsInClash = new Set(
         ev.deaths.filter((d) => clash.antIds.includes(d.id)).map((d) => d.id),
       );
       if (deadIdsInClash.size === 0) continue;
-      // Каждый живой участник — получает kills = deadCountOfOthers
-      // (по упрощению: считаем что каждый "виновен" в общей смерти)
-      // ...
-      // Для MVP — считаем kill каждому живому участнику если в clash есть смерть
-      const deadOwnersSet = new Set(
-        ev.deaths.filter((d) => deadIdsInClash.has(d.id)).map((d) => d.owner),
-      );
       for (const id of clash.antIds) {
         if (deadIdsInClash.has(id)) continue;
-        // Найдём owner живого
         const stillAlive = ev.damage.find((d) => d.id === id) ?? null;
         if (!stillAlive) continue;
-        // Если в clash был хотя бы один враг — этот выживший получает kill
-        // (упрощение, не учитывает кто кого реально)
         const enemyDeaths = ev.deaths.filter(
           (d) => deadIdsInClash.has(d.id) && d.owner !== stillAlive.owner,
         ).length;
@@ -361,7 +396,6 @@ export function SandboxScreen() {
           }
         }
       }
-      void deadOwnersSet;
     }
     // Births
     for (const e of ev.births) {
@@ -375,6 +409,59 @@ export function SandboxScreen() {
       }
       if (e.isHybrid) c.totals.hybrids++;
       if (e.isWild)   c.totals.wilds++;
+    }
+
+    // ─── Stage 4: events ring buffer + heatmap update ─────────────────────
+    const evBuf = eventsRef.current;
+    const hm = heatmapRef.current;
+    const pushEvent = (logEv: LogEvent) => {
+      evBuf.push(logEv);
+      if (evBuf.length > 500) evBuf.shift();
+    };
+
+    for (const e of ev.captures) {
+      pushEvent({
+        id: ++eventIdCounter.current,
+        tick, type: 'capture', x: e.x, y: e.y, ownerIdx: e.owner,
+      });
+      const idx = e.y * hm.w + e.x;
+      if (idx >= 0 && idx < hm.captures.length) {
+        hm.captures[idx]!++;
+        if (hm.captures[idx]! > hm.maxCaptures) hm.maxCaptures = hm.captures[idx]!;
+      }
+    }
+    for (const e of ev.collisions) {
+      pushEvent({
+        id: ++eventIdCounter.current,
+        tick, type: 'clash', x: e.x, y: e.y, ownerIdx: -1,
+        meta: { ants: e.antIds.length },
+      });
+      const idx = e.y * hm.w + e.x;
+      if (idx >= 0 && idx < hm.contested.length) {
+        hm.contested[idx]!++;
+        if (hm.contested[idx]! > hm.maxContested) hm.maxContested = hm.contested[idx]!;
+      }
+    }
+    for (const e of ev.deaths) {
+      const deathEv: LogEvent = {
+        id: ++eventIdCounter.current,
+        tick, type: 'death', x: e.x, y: e.y, ownerIdx: e.owner,
+      };
+      pushEvent(deathEv);
+      if (!firstDeathRef.current) firstDeathRef.current = deathEv;
+      const idx = e.y * hm.w + e.x;
+      if (idx >= 0 && idx < hm.deaths.length) {
+        hm.deaths[idx]!++;
+        if (hm.deaths[idx]! > hm.maxDeaths) hm.maxDeaths = hm.deaths[idx]!;
+      }
+    }
+    for (const e of ev.births) {
+      const type: LogEvent['type'] = e.isWild ? 'wild' : (e.isHybrid ? 'hybrid' : 'birth');
+      pushEvent({
+        id: ++eventIdCounter.current,
+        tick, type, x: e.x, y: e.y, ownerIdx: e.owner,
+        meta: { isHybrid: e.isHybrid ?? false, isWild: e.isWild ?? false },
+      });
     }
   }, [cfg.players]);
 
@@ -417,20 +504,48 @@ export function SandboxScreen() {
       // Ring buffer 200 точек
       const nextHistory = [...prev.territoryHistory, { tick: sim.tick, byPlayer: historyPoint }];
       if (nextHistory.length > 200) nextHistory.shift();
+
+      // Highlights пересчитываются раз в 50 тиков (компромисс свежесть/перформанс)
+      let nextHighlights = prev.highlights;
+      if (sim.tick % 50 === 0) {
+        nextHighlights = computeAllHighlights({
+          events: eventsRef.current,
+          cachedFirstDeath: firstDeathRef.current,
+          history: nextHistory,
+          players: cfg.players.map((p) => ({ id: p.id, name: p.name })),
+          heatmap: heatmapRef.current,
+          currentTick: sim.tick,
+        });
+      }
+
       return {
         tick: sim.tick,
         perPlayer,
         territoryHistory: nextHistory,
         totals: { ...counters.current.totals },
+        events: [...eventsRef.current],
+        highlights: nextHighlights,
       };
     });
   }, [cfg.players]);
+
+  const onJumpToTick = useCallback((targetTick: number) => {
+    const sim = fieldRef.current?.getSim();
+    if (!sim) return;
+    const delta = sim.tick - targetTick;
+    if (delta <= 0) {
+      showToast(`Event is in the future (t${targetTick} > now t${sim.tick})`, 'warn');
+      return;
+    }
+    onStepBack(delta);
+  }, [onStepBack, showToast]);
 
   const renderTab = () => {
     switch (activeTab) {
       case 'players': return <PlayersTab />;
       case 'ants':    return <AntsTab />;
-      case 'stats':   return <StatsTab />;
+      case 'stats':   return <StatsTab onJumpTo={onJumpToTick} />;
+      case 'events':  return <EventsTab onJumpTo={onJumpToTick} />;
       case 'field':   return <FieldTab />;
       case 'combat':  return <CombatTab />;
       case 'birth':   return <BirthTab />;
@@ -439,8 +554,10 @@ export function SandboxScreen() {
     }
   };
 
+  const getHeatmapData = useCallback(() => heatmapRef.current, []);
+
   return (
-    <LiveStatsProvider value={liveStats}>
+    <LiveStatsProvider value={liveStats} getHeatmapData={getHeatmapData}>
     <div style={{
       width: '100vw', height: '100vh',
       background: T.bg, color: T.textPrimary,
@@ -551,6 +668,9 @@ export function SandboxScreen() {
               showDirectionArrows={cfg.showDirectionArrows}
               showGrid={cfg.showGrid}
               showCellState={cfg.showCellState}
+              heatmapMode={cfg.heatmapMode}
+              heatmapOpacity={cfg.heatmapOpacity}
+              getHeatmapData={getHeatmapData}
               antScale={cfg.antScale}
               bg={cfg.bgColor}
               seed={cfg.seed}
@@ -581,6 +701,24 @@ export function SandboxScreen() {
                 EDIT MODE · click to add · shift+click to remove · wheel/RMB to rotate
               </div>
             )}
+            {cfg.heatmapMode !== 'off' && (() => {
+              const hm = heatmapRef.current;
+              const maxV =
+                cfg.heatmapMode === 'deaths'    ? hm.maxDeaths :
+                cfg.heatmapMode === 'captures'  ? hm.maxCaptures :
+                cfg.heatmapMode === 'contested' ? hm.maxContested : 0;
+              return (
+                <HeatmapLegend
+                  type={cfg.heatmapMode}
+                  maxValue={maxV}
+                  label={
+                    cfg.heatmapMode === 'deaths'    ? 'Deaths heatmap' :
+                    cfg.heatmapMode === 'captures'  ? 'Captures heatmap' :
+                    'Contested zones'
+                  }
+                />
+              );
+            })()}
           </div>
         </div>
 

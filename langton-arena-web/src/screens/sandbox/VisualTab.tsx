@@ -32,6 +32,29 @@ export function VisualTab() {
         <Toggle on={cfg.showCellState} onChange={(v) => sx.patchSandbox({ showCellState: v })} label="Show cell day/night" />
       </Section>
 
+      <Section title="Heatmap overlay">
+        <Field label="Mode">
+          <Select
+            value={cfg.heatmapMode}
+            onChange={(v) => sx.patchSandbox({ heatmapMode: v as 'off' | 'deaths' | 'captures' | 'contested' })}
+            options={[
+              { value: 'off',       label: 'Off' },
+              { value: 'deaths',    label: 'Deaths — where ants die' },
+              { value: 'captures',  label: 'Captures — productive zones' },
+              { value: 'contested', label: 'Contested — clash zones' },
+            ]}
+          />
+        </Field>
+        {cfg.heatmapMode !== 'off' && (
+          <Field label="Opacity" hint={`${Math.round(cfg.heatmapOpacity * 100)}%`}>
+            <Slider
+              value={cfg.heatmapOpacity} min={0.1} max={1} step={0.05}
+              onChange={(v) => sx.patchSandbox({ heatmapOpacity: v })}
+            />
+          </Field>
+        )}
+      </Section>
+
       <Section title="Trail decay">
         <Field label="Decay speed" hint={cfg.trailDecay.toFixed(2)}>
           <Slider

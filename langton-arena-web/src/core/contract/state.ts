@@ -82,6 +82,10 @@ export interface SandboxConfig {
   showCellState: boolean;
   /** Stage 2: какой набор скинов использовать. 'shape' — procedural формы из палитры; 'kenney' — спрайты. */
   skinPack: 'shape' | 'kenney';
+  /** Stage 4: heatmap overlay поверх канваса. */
+  heatmapMode: 'off' | 'deaths' | 'captures' | 'contested';
+  /** Stage 4: прозрачность heatmap overlay [0..1]. */
+  heatmapOpacity: number;
   antScale: number;
   trailDecay: number;
 
@@ -103,16 +107,53 @@ export interface PlayerLiveStats {
   cellsOwned: number;
 }
 
+// ─── Stage 4: Analytics ──────────────────────────────────────────────────────
+
+export type LogEventType = 'capture' | 'clash' | 'death' | 'birth' | 'hybrid' | 'wild';
+
+export interface LogEvent {
+  /** Глобальный счётчик для React key. */
+  id: number;
+  tick: number;
+  type: LogEventType;
+  x: number;
+  y: number;
+  /** Главный игрок события (capture — кто захватил; death — кто умер). */
+  ownerIdx: number;
+  /** Доп данные: clash — antCount; birth — isHybrid/isWild. */
+  meta?: Record<string, number | string | boolean>;
+}
+
+export type HighlightType =
+  | 'longest_streak'
+  | 'peak_territory'
+  | 'biggest_fight'
+  | 'first_death'
+  | 'most_kills_clash';
+
+export interface Highlight {
+  id: string;
+  type: HighlightType;
+  /** Tick куда откатиться по клику. */
+  tickStart: number;
+  tickEnd?: number;
+  title: string;
+  description: string;
+  ownerIdx?: number;
+  /** Числовое значение для сортировки и сравнения. */
+  value: number;
+  /** Координаты на канвасе (опционально). */
+  x?: number;
+  y?: number;
+}
+
 export interface SandboxLiveStats {
   tick: number;
-  /** Per-player статистика на текущий tick. Key = player.id. */
   perPlayer: Record<string, PlayerLiveStats>;
-  /** История territory% по тикам, ringbuffer 200 точек. */
   territoryHistory: Array<{
     tick: number;
     byPlayer: Record<string, number>;
   }>;
-  /** Глобальные счётчики за весь run. */
   totals: {
     births: number;
     deaths: number;
@@ -121,6 +162,11 @@ export interface SandboxLiveStats {
     hybrids: number;
     wilds: number;
   };
+  // ── Stage 4 ────────────────────────────────────────────
+  /** Ring buffer событий, max 500. */
+  events: LogEvent[];
+  /** Highlights пересчитываются каждые 50 тиков. */
+  highlights: Highlight[];
 }
 
 export interface SandboxRuntimeState {

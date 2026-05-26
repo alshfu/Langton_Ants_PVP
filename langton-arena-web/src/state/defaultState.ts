@@ -66,6 +66,8 @@ export function defaultSandbox(): SandboxConfig {
     showDirectionArrows: false,
     showCellState: false,
     skinPack: 'shape',
+    heatmapMode: 'off',
+    heatmapOpacity: 0.55,
     antScale: 0.9,
     trailDecay: 0.94,
 
@@ -86,6 +88,8 @@ export function defaultRuntimeState(activePlayerId: string | null): SandboxRunti
       perPlayer: {},
       territoryHistory: [],
       totals: { births: 0, deaths: 0, captures: 0, clashes: 0, hybrids: 0, wilds: 0 },
+      events: [],
+      highlights: [],
     },
   };
 }

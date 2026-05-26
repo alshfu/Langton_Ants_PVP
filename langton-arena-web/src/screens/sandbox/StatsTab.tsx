@@ -10,8 +10,14 @@ import { useLiveStats } from '@state/LiveStatsContext';
 import { TerritoryChart } from '@components/TerritoryChart';
 import { Sparkline } from '@components/Sparkline';
 import { Section, PlayerSwatch } from './_shared';
+import { HighlightCard } from './HighlightCard';
 
-export function StatsTab() {
+interface StatsTabProps {
+  /** При клике на highlight — откатиться к его tick. */
+  onJumpTo?: (tick: number) => void;
+}
+
+export function StatsTab({ onJumpTo }: StatsTabProps = {}) {
   const { tokens: T } = useTheme();
   const { state } = useAppState();
   const stats = useLiveStats();
@@ -63,6 +69,20 @@ export function StatsTab() {
           />
         </div>
       </Section>
+
+      {stats.highlights.length > 0 && (
+        <Section title={`Highlights · ${stats.highlights.length}`}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {stats.highlights.map((h) => (
+              <HighlightCard
+                key={h.id}
+                highlight={h}
+                onJumpTo={onJumpTo ?? (() => {})}
+              />
+            ))}
+          </div>
+        </Section>
+      )}
 
       <Section title="By player">
         {players.map((p) => {

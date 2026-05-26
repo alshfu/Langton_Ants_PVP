@@ -22,6 +22,8 @@ import {
 import { LA_DIRS } from '@core/langton/rules';
 import { drawShape } from './antShapes';
 import { getSprite, skinIdForPlayer } from '@lib/spriteLoader';
+import { heatmapColor, type HeatmapType } from '@lib/heatmapColors';
+import type { HeatmapData } from '@state/LiveStatsContext';
 
 export interface LangtonFieldProps {
   w: number;
@@ -53,6 +55,12 @@ export interface LangtonFieldProps {
   showGrid?: boolean;
   /** Показывать day/night состояние клеток (state-grid поверх territory). */
   showCellState?: boolean;
+  /** Stage 4: heatmap режим. 'off' — не рисуем. */
+  heatmapMode?: 'off' | HeatmapType;
+  /** Stage 4: прозрачность heatmap overlay [0..1]. */
+  heatmapOpacity?: number;
+  /** Stage 4: геттер heatmap данных. Не часть state — обновляется по ref. */
+  getHeatmapData?: () => HeatmapData | null;
   antScale?: number;
   bg?: string;
   selectedAntId?: string | null;
@@ -64,7 +72,7 @@ export interface LangtonFieldProps {
   onCellWheel?: (x: number, y: number, deltaY: number) => void;
 
   stepSignal?: number;
-  onEvents?: (ev: StepEvents) => void;
+  onEvents?: (ev: StepEvents, tick: number) => void;
   onTick?: (sim: SimState) => void;
 }
 
@@ -86,6 +94,9 @@ export const LangtonField = forwardRef<LangtonFieldHandle, LangtonFieldProps>(fu
   glow = true, showTrail = true, showHpDots = false,
   showDirectionArrows = false, showGrid = false,
   showCellState = false,
+  heatmapMode = 'off',
+  heatmapOpacity = 0.55,
+  getHeatmapData,
   antScale = 1, bg = '#0E0B1F',
   seed = 1, collisionCooldownTicks = 5,
   hpEnabled = true, damageCapEnabled = true,
@@ -136,18 +147,20 @@ export const LangtonField = forwardRef<LangtonFieldHandle, LangtonFieldProps>(fu
   // Если current < prev — игнорируется (step back делается через snapshot restore извне).
   const prevStepRef = useRef(stepSignal);
   useEffect(() => {
-    if (stepSignal !== prevStepRef.current && simRef.current && trailRef.current) {
+    const sim = simRef.current;
+    const trail = trailRef.current;
+    if (stepSignal !== prevStepRef.current && sim && trail) {
       const delta = stepSignal - prevStepRef.current;
       prevStepRef.current = stepSignal;
-      if (delta <= 0) return; // step back — не нашa зона ответственности
+      if (delta <= 0) return;
       for (let i = 0; i < delta; i++) {
-        const ev = stepLangton(simRef.current);
+        const ev = stepLangton(sim);
         for (const c of ev.captures) {
-          const idx = c.y * simRef.current.w + c.x;
-          if (idx >= 0 && idx < trailRef.current.length) trailRef.current[idx] = 1;
+          const idx = c.y * sim.w + c.x;
+          if (idx >= 0 && idx < trail.length) trail[idx] = 1;
         }
-        onEvents?.(ev);
-        onTick?.(simRef.current);
+        onEvents?.(ev, sim.tick);
+        onTick?.(sim);
       }
     }
   }, [stepSignal, onEvents, onTick]);
@@ -175,7 +188,7 @@ export const LangtonField = forwardRef<LangtonFieldHandle, LangtonFieldProps>(fu
             const i = c.y * sim.w + c.x;
             if (i >= 0 && i < trail.length) trail[i] = 1;
           }
-          onEvents?.(ev);
+          onEvents?.(ev, sim.tick);
           onTick?.(sim);
           acc -= period;
         }
@@ -190,12 +203,14 @@ export const LangtonField = forwardRef<LangtonFieldHandle, LangtonFieldProps>(fu
         cellSize, bg, antScale, glow, showTrail, showHpDots,
         showDirectionArrows, showGrid, selectedAntId, editMode,
         showCellState, shapes, skinPack,
+        heatmapMode, heatmapOpacity,
+        heatmapData: getHeatmapData?.() ?? null,
       });
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tps, paused, cellSize, JSON.stringify(palette), JSON.stringify(shapes), skinPack, bg, antScale, glow, showTrail, showHpDots, showDirectionArrows, showGrid, showCellState, selectedAntId, editMode]);
+  }, [tps, paused, cellSize, JSON.stringify(palette), JSON.stringify(shapes), skinPack, bg, antScale, glow, showTrail, showHpDots, showDirectionArrows, showGrid, showCellState, selectedAntId, editMode, heatmapMode, heatmapOpacity]);
 
   // ─── Mouse interactions ────────────────────────────────────────────────────
   const cellFromEvent = useCallback((e: { clientX: number; clientY: number }): { x: number; y: number } | null => {
@@ -292,6 +307,9 @@ interface DrawOpts {
   editMode: boolean;
   shapes?: Array<import('./antShapes').ShapeId>;
   skinPack: 'shape' | 'kenney';
+  heatmapMode: 'off' | HeatmapType;
+  heatmapOpacity: number;
+  heatmapData: HeatmapData | null;
 }
 
 function draw(
@@ -307,6 +325,7 @@ function draw(
     cellSize, bg, antScale, glow, showTrail, showHpDots,
     showDirectionArrows, showGrid, showCellState,
     selectedAntId, editMode, shapes, skinPack,
+    heatmapMode, heatmapOpacity, heatmapData,
   } = opts;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const cssW = w * cellSize;
@@ -392,6 +411,32 @@ function draw(
       ctx.lineTo(cssW, y * cellSize);
     }
     ctx.stroke();
+  }
+
+  // 4.5. Heatmap overlay (Stage 4)
+  if (heatmapMode !== 'off' && heatmapData && heatmapData.w === w && heatmapData.h === h) {
+    let grid: Uint32Array;
+    let maxV: number;
+    switch (heatmapMode) {
+      case 'deaths':    grid = heatmapData.deaths;    maxV = heatmapData.maxDeaths;    break;
+      case 'captures':  grid = heatmapData.captures;  maxV = heatmapData.maxCaptures;  break;
+      case 'contested': grid = heatmapData.contested; maxV = heatmapData.maxContested; break;
+    }
+    // Если данных ещё нет — пропускаем (не рисуем пустую заливку)
+    if (maxV > 0) {
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const v = grid[y * w + x]!;
+          if (v === 0) continue;
+          const t = v / maxV;
+          const [rC, gC, bC] = heatmapColor(heatmapMode, t);
+          // alpha масштабируется и intensity, и user opacity
+          const alpha = heatmapOpacity * Math.min(1, 0.25 + t * 0.75);
+          ctx.fillStyle = `rgba(${rC},${gC},${bC},${alpha.toFixed(3)})`;
+          ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+        }
+      }
+    }
   }
 
   // 5. Муравьи

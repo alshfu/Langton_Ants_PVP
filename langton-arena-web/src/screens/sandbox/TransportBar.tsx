@@ -32,9 +32,7 @@ export function TransportBar({ onStep, onStepBack, onRun, canStepBack = false }:
   const effectiveTps = Math.round(cfg.baseTps * cfg.speedMultiplier);
 
   const [customStep, setCustomStep] = useState<string>('100');
-  // parseInt('0') === 0 → falsy, поэтому используем isNaN-проверку вместо || 100
-  const _parsed = parseInt(customStep, 10);
-  const parsedCustom = Math.max(1, Math.min(10000, isNaN(_parsed) ? 100 : _parsed));
+  const parsedCustom = Math.max(1, Math.min(10000, parseInt(customStep, 10) || 100));
 
   const stepBtnStyle: React.CSSProperties = {
     padding: '6px 10px', minWidth: 44,

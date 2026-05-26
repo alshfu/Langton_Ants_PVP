@@ -37,6 +37,71 @@ describe('engine Stage 2: GC dead ants', () => {
   });
 });
 
+describe('engine: combat toggles', () => {
+  it('hpEnabled=false: ants do not lose HP on collision', () => {
+    const sim = makeLangtonState({
+      w: 10, h: 10, seed: 1,
+      hpEnabled: false,
+      ants: [
+        { id: 'a', owner: 0, x: 5, y: 5, dir: 0, rule: 'RL', hp: 10 },
+        { id: 'b', owner: 1, x: 5, y: 5, dir: 0, rule: 'RL', hp: 10 },
+      ],
+      collisionCooldownTicks: 0,
+      birthConfig: null,
+    });
+    stepLangton(sim);
+    // Оба муравья должны быть живы с полным HP
+    expect(sim.ants[0]!.hp).toBe(10);
+    expect(sim.ants[1]!.hp).toBe(10);
+    expect(sim.ants[0]!.dead ?? false).toBe(false);
+    expect(sim.ants[1]!.dead ?? false).toBe(false);
+  });
+
+  it('damageCapEnabled=false: damage is cumulative (n enemies = -n HP)', () => {
+    // 3 муравья идут к одной клетке — детерминированно встретятся
+    // Поле 5×5, все идут к (2,2): сверху, снизу, справа
+    const sim = makeLangtonState({
+      w: 5, h: 5, seed: 1,
+      hpEnabled: true,
+      damageCapEnabled: false,
+      ants: [
+        { id: 'a', owner: 0, x: 2, y: 1, dir: 2, rule: 'NN', hp: 10 }, // N→S
+        { id: 'b', owner: 1, x: 2, y: 3, dir: 0, rule: 'NN', hp: 10 }, // S→N
+        { id: 'c', owner: 2, x: 3, y: 2, dir: 3, rule: 'NN', hp: 10 }, // E→W
+      ],
+      collisionCooldownTicks: 0,
+      birthConfig: null,
+    });
+    // Правило 'NN' не определено в Langton — но это даст 'NN' → нет поворота,
+    // все продолжают идти в свою сторону. Все встретятся в (2,2) на t1.
+    stepLangton(sim);
+    // На (2,2) теперь 3 муравья. Damage cap OFF, у каждого 2 врага → −2 HP.
+    for (const a of sim.ants) {
+      expect(a.hp).toBe(8); // 10 - 2
+    }
+  });
+
+  it('damageCapEnabled=true: damage capped at 1 even with many enemies', () => {
+    const sim = makeLangtonState({
+      w: 5, h: 5, seed: 1,
+      hpEnabled: true,
+      damageCapEnabled: true,
+      ants: [
+        { id: 'a', owner: 0, x: 2, y: 1, dir: 2, rule: 'NN', hp: 10 },
+        { id: 'b', owner: 1, x: 2, y: 3, dir: 0, rule: 'NN', hp: 10 },
+        { id: 'c', owner: 2, x: 3, y: 2, dir: 3, rule: 'NN', hp: 10 },
+      ],
+      collisionCooldownTicks: 0,
+      birthConfig: null,
+    });
+    stepLangton(sim);
+    // Cap ON: каждый теряет максимум 1
+    for (const a of sim.ants) {
+      expect(a.hp).toBe(9);
+    }
+  });
+});
+
 describe('engine Stage 2: unlimited birth', () => {
   it('with unlimited=true, maxAntsPerPlayer is ignored', () => {
     const sim = makeLangtonState({

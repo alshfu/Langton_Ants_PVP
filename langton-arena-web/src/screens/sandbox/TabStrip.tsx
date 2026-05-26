@@ -5,7 +5,7 @@
 
 import { useTheme } from '@theme/ThemeProvider';
 
-export type SandboxTabId = 'players' | 'ants' | 'stats' | 'field' | 'combat' | 'birth' | 'visual' | 'presets';
+export type SandboxTabId = 'players' | 'ants' | 'stats' | 'events' | 'field' | 'combat' | 'birth' | 'visual' | 'presets';
 
 interface TabDef {
   id: SandboxTabId;
@@ -18,10 +18,11 @@ const TABS: TabDef[] = [
   { id: 'players', icon: '👥', label: 'Players', description: 'Add, remove, configure players (2-10)' },
   { id: 'ants',    icon: '🐜', label: 'Ants',    description: 'Individual ants of active player' },
   { id: 'stats',   icon: '📊', label: 'Stats',   description: 'Live statistics during simulation' },
+  { id: 'events',  icon: '📋', label: 'Events',  description: 'Event log with filter and step back' },
   { id: 'field',   icon: '⬜', label: 'Field',   description: 'Size, topology, background' },
   { id: 'combat',  icon: '⚔',  label: 'Combat',  description: 'HP, damage cap, cooldown' },
   { id: 'birth',   icon: '✚',  label: 'Birth',   description: 'Reproduction, hybrids, wilds' },
-  { id: 'visual',  icon: '✨', label: 'Visual',  description: 'Glow, trails, ant scale, skins' },
+  { id: 'visual',  icon: '✨', label: 'Visual',  description: 'Glow, trails, ant scale, skins, heatmap' },
   { id: 'presets', icon: '★',  label: 'Presets', description: 'Load and save scenarios' },
 ];
 
@@ -52,7 +53,6 @@ export function TabStrip({
               padding: '14px 0 12px',
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
               background: isActive ? T.accentMuted : 'transparent',
-              // Используем только long-form borders — нельзя мешать border (shorthand) с borderLeft (specific)
               borderTop: 'none',
               borderRight: 'none',
               borderBottom: 'none',
