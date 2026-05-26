@@ -19,11 +19,15 @@ interface TransportBarProps {
   onRun: () => void;
   /** Доступно ли двигаться назад (есть ли snapshots). */
   canStepBack?: boolean;
+  /** Stage 6: размер мешка активного игрока (для disabled/enabled Deploy). */
+  activeReserve?: number;
 }
 
 const SPEED_MULTIPLIERS = [0.25, 0.5, 1, 2, 4, 8, 16, 32, 64];
 
-export function TransportBar({ onStep, onStepBack, onRun, canStepBack = false }: TransportBarProps) {
+export function TransportBar({
+  onStep, onStepBack, onRun, canStepBack = false, activeReserve = 0,
+}: TransportBarProps) {
   const { tokens: T } = useTheme();
   const { state, sandbox: sx } = useAppState();
   const cfg = state.sandbox;
@@ -136,6 +140,39 @@ export function TransportBar({ onStep, onStepBack, onRun, canStepBack = false }:
           }}
         />
       </div>
+
+      {/* Stage 6: Deploy button — только если reserveMode включён */}
+      {cfg.reserveMode && (
+        <>
+          <div style={{ width: 1, height: 28, background: T.border }} />
+          <button
+            onClick={() => {
+              if (activeReserve === 0) return; // toast делает caller
+              sx.setDeployMode(!rt.deployMode);
+            }}
+            disabled={inEdit || activeReserve === 0}
+            title={
+              inEdit ? 'Deploy works only in Run mode'
+              : activeReserve === 0 ? 'No ants in reserve'
+              : rt.deployMode ? 'Click again to exit Deploy mode'
+              : `Deploy mode — ${activeReserve} ants in bag`
+            }
+            style={{
+              padding: '6px 12px',
+              borderRadius: T.radiusSm,
+              background: rt.deployMode ? '#C77DFF' : T.bgOverlay,
+              color: rt.deployMode ? '#000' : T.textPrimary,
+              border: `1px solid ${rt.deployMode ? '#C77DFF' : T.border}`,
+              fontFamily: 'JetBrains Mono, monospace',
+              fontSize: 11, fontWeight: 700,
+              cursor: (inEdit || activeReserve === 0) ? 'not-allowed' : 'pointer',
+              opacity: (inEdit || activeReserve === 0) ? 0.5 : 1,
+            }}
+          >
+            📦 {rt.deployMode ? `Deploying (${activeReserve})` : `Deploy (${activeReserve})`}
+          </button>
+        </>
+      )}
 
       {/* Reset / Re-roll */}
       <div style={{ width: 1, height: 28, background: T.border }} />

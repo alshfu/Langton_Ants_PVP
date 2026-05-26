@@ -130,18 +130,24 @@ function defaultConfig(overrides = {}) {
     birthMinNeighbors: 3,
     birthCooldownTicks: 80,
     maxAntsPerPlayer: 12,
+    unlimitedAnts: false,
     hybridChance: 0.10,
     wildBirthChance: 0.03,
     showGlow: true,
     showTrails: true,
     showHpDots: true,
     showDirectionArrows: false,
+    showCellState: false,
+    skinPack: 'shape',
+    // Stage 4: heatmap
+    heatmapMode: 'off',
+    heatmapOpacity: 0.55,
     antScale: 0.9,
     trailDecay: 0.94,
     baseTps: 15,
     speedMultiplier: 1,
     seed: 42,
-    // Stage 5: defaults
+    // Stage 5: mutation lab
     mutation: {
       enabled: false,
       haloEnabled: false,
@@ -152,6 +158,10 @@ function defaultConfig(overrides = {}) {
       pathStraightTicks: 10,
     },
     winCondition: { kind: 'none', threshold: 5 },
+    // Stage 6: reserve & deploy
+    reserveMode: false,
+    deployRule: 'anywhere',
+    deployRadius: 3,
     ...overrides,
   };
 }

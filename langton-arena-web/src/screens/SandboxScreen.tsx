@@ -49,6 +49,7 @@ import { LiveStatsProvider } from '@state/LiveStatsContext';
 import { computeCellCountsByOwner, computeAliveAntsByOwner } from '@lib/computeStats';
 import { computeAllHighlights } from '@lib/computeHighlights';
 import { computeMatchResult } from '@lib/computeMatchResult';
+import { canDeploy } from '@lib/deployValidation';
 import { MatchBanner } from '@components/MatchBanner';
 
 export function SandboxScreen() {
@@ -76,6 +77,7 @@ export function SandboxScreen() {
     alive: 0, born: 0, lost: 0, captures: 0, kills: 0,
     territoryPct: 0, cellsOwned: 0,
     mutants: 0, mutantsAlive: 0,
+    reserve: 0,
   });
 
   const resetCounters = useCallback(() => {
@@ -116,6 +118,8 @@ export function SandboxScreen() {
     maxContested: 0,
   });
   const firstDeathRef = useRef<LogEvent | null>(null); // кэшируем для highlight
+  // Stage 6: мешки муравьёв (key = playerIdx)
+  const reserveRef = useRef<Map<number, Ant[]>>(new Map());
 
   // Инициализация счётчиков при изменении списка игроков
   useEffect(() => {
@@ -175,6 +179,14 @@ export function SandboxScreen() {
     [cfg.players.length],
   );
 
+  // Stage 6: callback который кладёт newborn в мешок вместо поля
+  const onReserveCallback = useCallback((newAnt: Ant) => {
+    const playerIdx = newAnt.owner;
+    const bag = reserveRef.current.get(playerIdx) ?? [];
+    bag.push(newAnt);
+    reserveRef.current.set(playerIdx, bag);
+  }, []);
+
   const birthConfig: BirthConfig | null = useMemo(() => {
     if (!cfg.birthEnabled) return null;
     return {
@@ -193,6 +205,9 @@ export function SandboxScreen() {
         pathEnabled:        cfg.mutation.pathEnabled,
         pathStraightTicks:  cfg.mutation.pathStraightTicks,
       } : undefined,
+      // Stage 6: reserveMode направляет рождения в мешок
+      reserveMode: cfg.reserveMode,
+      onReserve:   cfg.reserveMode ? onReserveCallback : undefined,
     };
   }, [
     cfg.birthEnabled, cfg.birthMinNeighbors, cfg.birthCooldownTicks,
@@ -200,6 +215,7 @@ export function SandboxScreen() {
     cfg.mutation.enabled, cfg.mutation.haloEnabled, cfg.mutation.haloMinNeighbors,
     cfg.mutation.mirrorEnabled, cfg.mutation.mirrorRadius,
     cfg.mutation.pathEnabled, cfg.mutation.pathStraightTicks,
+    cfg.reserveMode, onReserveCallback,
   ]);
 
   const effectiveTps = cfg.baseTps * cfg.speedMultiplier;
@@ -293,6 +309,7 @@ export function SandboxScreen() {
     eventsRef.current = [];
     eventIdCounter.current = 0;
     firstDeathRef.current = null;
+    reserveRef.current.clear(); // Stage 6 reset
     const hm = heatmapRef.current;
     hm.deaths.fill(0);
     hm.captures.fill(0);
@@ -432,7 +449,11 @@ export function SandboxScreen() {
         const p = cfg.players[e.owner];
         if (p) {
           const stats = c.perPlayer.get(p.id);
-          if (stats) stats.born++;
+          if (stats) {
+            stats.born++;
+            // Stage 6: если родился в мешок — инкремент reserve count
+            if (e.reserved) stats.reserve++;
+          }
         }
         c.totals.births++;
       }
@@ -485,13 +506,21 @@ export function SandboxScreen() {
       }
     }
     for (const e of ev.births) {
-      const type: LogEvent['type'] = e.isWild ? 'wild' : (e.isHybrid ? 'hybrid' : 'birth');
+      // Stage 6: если родился в мешок — событие 'reserve_in', не 'birth'
+      const type: LogEvent['type'] = e.reserved
+        ? 'reserve_in'
+        : (e.isWild ? 'wild' : (e.isHybrid ? 'hybrid' : 'birth'));
       pushEvent({
         id: ++eventIdCounter.current,
         tick, type, x: e.x, y: e.y, ownerIdx: e.owner,
-        meta: { isHybrid: e.isHybrid ?? false, isWild: e.isWild ?? false },
+        meta: {
+          isHybrid: e.isHybrid ?? false,
+          isWild: e.isWild ?? false,
+          reserved: e.reserved ?? false,
+        },
       });
       // Stage 5: отдельное mutant событие если рождение породило мутанта
+      // (срабатывает и для on-field, и для reserved)
       if (e.isMutant) {
         pushEvent({
           id: ++eventIdCounter.current,
@@ -599,6 +628,68 @@ export function SandboxScreen() {
     }
     onStepBack(delta);
   }, [onStepBack, showToast]);
+
+  // Stage 6: Deploy handlers ─────────────────────────────────────────────────
+  const onDeployClick = useCallback((x: number, y: number) => {
+    if (!rt.activePlayerId) {
+      showToast('No active player selected', 'warn');
+      return;
+    }
+    const playerIdx = cfg.players.findIndex((p) => p.id === rt.activePlayerId);
+    if (playerIdx < 0) return;
+    const sim = fieldRef.current?.getSim();
+    if (!sim) return;
+    const bag = reserveRef.current.get(playerIdx);
+    if (!bag || bag.length === 0) {
+      showToast('No ants in reserve', 'warn');
+      return;
+    }
+    // Валидация
+    const v = canDeploy(x, y, playerIdx, sim, {
+      deployRule: cfg.deployRule, deployRadius: cfg.deployRadius,
+    });
+    if (!v.ok) {
+      showToast(v.reason, 'warn');
+      return;
+    }
+    // Достаём первого из мешка (FIFO), перемещаем на поле
+    const ant = bag.shift()!;
+    ant.x = x;
+    ant.y = y;
+    ant.lastDamageTick = sim.tick - 9999; // сброс cooldown immunity на deploy
+    sim.ants.push(ant);
+
+    // Stage 6: лог deploy event
+    const tick = sim.tick;
+    const ev: LogEvent = {
+      id: ++eventIdCounter.current,
+      tick, type: 'deploy', x, y, ownerIdx: playerIdx,
+    };
+    eventsRef.current.push(ev);
+    if (eventsRef.current.length > 500) eventsRef.current.shift();
+
+    // Декремент reserve counter
+    const c = counters.current;
+    const p = cfg.players[playerIdx];
+    if (p) {
+      const stats = c.perPlayer.get(p.id);
+      if (stats) stats.reserve = Math.max(0, stats.reserve - 1);
+    }
+
+    showToast(`Deployed at (${x}, ${y})`, 'info');
+  }, [cfg.players, cfg.deployRule, cfg.deployRadius, rt.activePlayerId, showToast]);
+
+  const isDeployValid = useCallback((x: number, y: number) => {
+    if (!rt.activePlayerId) return false;
+    const playerIdx = cfg.players.findIndex((p) => p.id === rt.activePlayerId);
+    if (playerIdx < 0) return false;
+    const sim = fieldRef.current?.getSim();
+    if (!sim) return false;
+    const v = canDeploy(x, y, playerIdx, sim, {
+      deployRule: cfg.deployRule, deployRadius: cfg.deployRadius,
+    });
+    return v.ok;
+  }, [cfg.players, cfg.deployRule, cfg.deployRadius, rt.activePlayerId]);
 
   const renderTab = () => {
     switch (activeTab) {
@@ -747,6 +838,9 @@ export function SandboxScreen() {
               onCellClick={onCanvasClick}
               onCellContextMenu={onCanvasContextMenu}
               onCellWheel={onCanvasWheel}
+              deployMode={rt.deployMode}
+              onDeployClick={onDeployClick}
+              isDeployValid={isDeployValid}
               stepSignal={stepSignal}
               onEvents={onEvents}
               onTick={onTick}
@@ -814,6 +908,13 @@ export function SandboxScreen() {
         onStepBack={onStepBack}
         onRun={switchToRun}
         canStepBack={canStepBack}
+        activeReserve={(() => {
+          // Stage 6: размер мешка активного игрока
+          if (!rt.activePlayerId) return 0;
+          const idx = cfg.players.findIndex((p) => p.id === rt.activePlayerId);
+          if (idx < 0) return 0;
+          return reserveRef.current.get(idx)?.length ?? 0;
+        })()}
       />
     </div>
     </LiveStatsProvider>

@@ -99,6 +99,14 @@ export interface SandboxConfig {
   mutation: MutationConfig;
   /** Win condition matchа. */
   winCondition: WinCondition;
+
+  // ── Stage 6: Reserve & Deploy ──────────────────────────────────────────────
+  /** Per-preset toggle. По умолчанию false — backward compat. */
+  reserveMode: boolean;
+  /** Где можно выпускать муравьёв из мешка. */
+  deployRule: 'anywhere' | 'own_territory' | 'near_alive';
+  /** Радиус для near_alive (Чебышёв). */
+  deployRadius: number;
 }
 
 export interface MutationConfig {
@@ -140,15 +148,16 @@ export interface PlayerLiveStats {
   territoryPct: number;
   cellsOwned: number;
   // ── Stage 5 ────────────────────────────────────────────
-  /** Всего родилось мутантов у игрока за матч. */
   mutants: number;
-  /** Сколько живых мутантов сейчас. */
   mutantsAlive: number;
+  // ── Stage 6 ────────────────────────────────────────────
+  /** Количество муравьёв в мешке этого игрока. */
+  reserve: number;
 }
 
 // ─── Stage 4: Analytics ──────────────────────────────────────────────────────
 
-export type LogEventType = 'capture' | 'clash' | 'death' | 'birth' | 'hybrid' | 'wild' | 'mutant';
+export type LogEventType = 'capture' | 'clash' | 'death' | 'birth' | 'hybrid' | 'wild' | 'mutant' | 'reserve_in' | 'deploy';
 
 export interface LogEvent {
   /** Глобальный счётчик для React key. */
@@ -229,6 +238,8 @@ export interface SandboxRuntimeState {
   activePlayerId: string | null;
   selectedAntId: string | null;
   liveStats: SandboxLiveStats;
+  /** Stage 6: активен ли deploy-режим (курсор crosshair, hover-подсветка). */
+  deployMode: boolean;
 }
 
 // ─── User preset (в localStorage) ────────────────────────────────────────────

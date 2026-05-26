@@ -49,6 +49,10 @@ export interface BirthConfig {
     pathEnabled: boolean;
     pathStraightTicks: number;
   };
+  /** Stage 6: если true — рождения идут в мешок через onReserve вместо ants.push. */
+  reserveMode?: boolean;
+  /** Stage 6: callback вызывается вместо ants.push когда reserveMode=true. */
+  onReserve?: (newAnt: Ant) => void;
 }
 
 export interface SimState {
@@ -81,6 +85,8 @@ export interface StepEvents {
     isHybrid: boolean; isWild: boolean;
     isMutant?: boolean;
     mutantCause?: 'halo' | 'mirror' | 'path';
+    /** Stage 6: если true — муравей не появился на поле, ушёл в мешок. */
+    reserved?: boolean;
   }>;
 }
 
@@ -416,11 +422,19 @@ export function stepLangton(sim: SimState): StepEvents {
         mutantCause,
         straightTicks: 0,
       };
-      ants.push(newAnt);
+      // Stage 6: если reserveMode — муравей идёт в мешок через callback
+      // вместо появления на поле. Engine не знает что такое "мешок" — это
+      // абстракция уровня UI. Здесь только callback.
+      const reserved = bc.reserveMode === true && bc.onReserve !== undefined;
+      if (reserved) {
+        bc.onReserve!(newAnt);
+      } else {
+        ants.push(newAnt);
+      }
       sim.lastBirthTickByOwner[ownerId] = sim.tick;
       events.births.push({
         id: newAnt.id, owner: newOwner, x: spot.x, y: spot.y,
-        isHybrid, isWild, isMutant, mutantCause,
+        isHybrid, isWild, isMutant, mutantCause, reserved,
       });
     }
   }

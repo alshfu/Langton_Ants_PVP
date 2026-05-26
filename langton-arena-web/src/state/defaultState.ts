@@ -89,6 +89,11 @@ export function defaultSandbox(): SandboxConfig {
       kind: 'none',
       threshold: 5,
     },
+
+    // Stage 6 defaults
+    reserveMode: false,        // backward compat — старые пресеты работают как раньше
+    deployRule: 'anywhere',
+    deployRadius: 3,
   };
 }
 
@@ -98,6 +103,7 @@ export function defaultRuntimeState(activePlayerId: string | null): SandboxRunti
     paused: true,
     activePlayerId,
     selectedAntId: null,
+    deployMode: false,         // Stage 6
     liveStats: {
       tick: 0,
       perPlayer: {},

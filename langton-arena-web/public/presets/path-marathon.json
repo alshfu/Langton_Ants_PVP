@@ -87,12 +87,17 @@
     "birthMinNeighbors": 2,
     "birthCooldownTicks": 20,
     "maxAntsPerPlayer": 15,
+    "unlimitedAnts": false,
     "hybridChance": 0.05,
     "wildBirthChance": 0,
     "showGlow": true,
     "showTrails": true,
     "showHpDots": true,
     "showDirectionArrows": false,
+    "showCellState": false,
+    "skinPack": "shape",
+    "heatmapMode": "off",
+    "heatmapOpacity": 0.55,
     "antScale": 0.9,
     "trailDecay": 0.94,
     "baseTps": 15,
@@ -110,6 +115,9 @@
     "winCondition": {
       "kind": "first_mutant",
       "threshold": 1
-    }
+    },
+    "reserveMode": false,
+    "deployRule": "anywhere",
+    "deployRadius": 3
   }
 }

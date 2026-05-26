@@ -70,6 +70,13 @@ export interface LangtonFieldProps {
   onCellClick?: (x: number, y: number, modifiers: { shift: boolean }) => void;
   onCellContextMenu?: (x: number, y: number) => void;
   onCellWheel?: (x: number, y: number, deltaY: number) => void;
+  // ── Stage 6: Deploy ──────────────────────────────────────
+  /** Активен ли deploy-режим (курсор crosshair, hover-подсветка). */
+  deployMode?: boolean;
+  /** Click → выпустить муравья в (x, y). Caller валидирует. */
+  onDeployClick?: (x: number, y: number) => void;
+  /** Проверка валидности клетки для подсветки (зелёный/красный hover). */
+  isDeployValid?: (x: number, y: number) => boolean;
 
   stepSignal?: number;
   onEvents?: (ev: StepEvents, tick: number) => void;
@@ -104,6 +111,7 @@ export const LangtonField = forwardRef<LangtonFieldHandle, LangtonFieldProps>(fu
   selectedAntId = null,
   editMode = false,
   onCellClick, onCellContextMenu, onCellWheel,
+  deployMode = false, onDeployClick, isDeployValid,
   stepSignal = 0,
   onEvents, onTick,
 }, ref) {
@@ -165,6 +173,9 @@ export const LangtonField = forwardRef<LangtonFieldHandle, LangtonFieldProps>(fu
     }
   }, [stepSignal, onEvents, onTick]);
 
+  // Stage 6: hovered cell для подсветки в deploy mode (объявлен до rAF чтобы использоваться в draw)
+  const [hoveredCell, setHoveredCell] = useState<{ x: number; y: number } | null>(null);
+
   // Главный rAF-цикл
   useEffect(() => {
     let raf = 0;
@@ -199,18 +210,28 @@ export const LangtonField = forwardRef<LangtonFieldHandle, LangtonFieldProps>(fu
         }
       }
 
+      // Stage 6: deployHover для подсветки клетки в deploy mode
+      let deployHover: { x: number; y: number; valid: boolean } | null = null;
+      if (deployMode && hoveredCell) {
+        deployHover = {
+          x: hoveredCell.x, y: hoveredCell.y,
+          valid: isDeployValid ? isDeployValid(hoveredCell.x, hoveredCell.y) : true,
+        };
+      }
+
       draw(canvasRef.current, sim, trail, palette, {
         cellSize, bg, antScale, glow, showTrail, showHpDots,
         showDirectionArrows, showGrid, selectedAntId, editMode,
         showCellState, shapes, skinPack,
         heatmapMode, heatmapOpacity,
         heatmapData: getHeatmapData?.() ?? null,
+        deployHover,
       });
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tps, paused, cellSize, JSON.stringify(palette), JSON.stringify(shapes), skinPack, bg, antScale, glow, showTrail, showHpDots, showDirectionArrows, showGrid, showCellState, selectedAntId, editMode, heatmapMode, heatmapOpacity]);
+  }, [tps, paused, cellSize, JSON.stringify(palette), JSON.stringify(shapes), skinPack, bg, antScale, glow, showTrail, showHpDots, showDirectionArrows, showGrid, showCellState, selectedAntId, editMode, heatmapMode, heatmapOpacity, deployMode, hoveredCell]);
 
   // ─── Mouse interactions ────────────────────────────────────────────────────
   const cellFromEvent = useCallback((e: { clientX: number; clientY: number }): { x: number; y: number } | null => {
@@ -227,11 +248,35 @@ export const LangtonField = forwardRef<LangtonFieldHandle, LangtonFieldProps>(fu
   }, [w, h]);
 
   const handleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!editMode || !onCellClick) return;
     const cell = cellFromEvent(e);
     if (!cell) return;
+    // Stage 6: deploy mode имеет приоритет над edit (edit запрещён в Run mode)
+    if (deployMode && onDeployClick) {
+      onDeployClick(cell.x, cell.y);
+      return;
+    }
+    if (!editMode || !onCellClick) return;
     onCellClick(cell.x, cell.y, { shift: e.shiftKey });
-  }, [editMode, onCellClick, cellFromEvent]);
+  }, [editMode, onCellClick, deployMode, onDeployClick, cellFromEvent]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!deployMode) {
+      if (hoveredCell !== null) setHoveredCell(null);
+      return;
+    }
+    const cell = cellFromEvent(e);
+    if (!cell) {
+      if (hoveredCell !== null) setHoveredCell(null);
+      return;
+    }
+    if (!hoveredCell || hoveredCell.x !== cell.x || hoveredCell.y !== cell.y) {
+      setHoveredCell(cell);
+    }
+  }, [deployMode, hoveredCell, cellFromEvent]);
+
+  const handleMouseLeave = useCallback(() => {
+    if (hoveredCell !== null) setHoveredCell(null);
+  }, [hoveredCell]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!editMode) return;
@@ -281,11 +326,13 @@ export const LangtonField = forwardRef<LangtonFieldHandle, LangtonFieldProps>(fu
       ref={canvasRef}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
       style={{
         display: 'block',
         imageRendering: 'pixelated',
         background: bg,
-        cursor: editMode ? 'crosshair' : 'default',
+        cursor: (editMode || deployMode) ? 'crosshair' : 'default',
       }}
     />
   );
@@ -310,6 +357,8 @@ interface DrawOpts {
   heatmapMode: 'off' | HeatmapType;
   heatmapOpacity: number;
   heatmapData: HeatmapData | null;
+  /** Stage 6: hover-cell + validity flag для подсветки. */
+  deployHover: { x: number; y: number; valid: boolean } | null;
 }
 
 function draw(
@@ -326,6 +375,7 @@ function draw(
     showDirectionArrows, showGrid, showCellState,
     selectedAntId, editMode, shapes, skinPack,
     heatmapMode, heatmapOpacity, heatmapData,
+    deployHover,
   } = opts;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const cssW = w * cellSize;
@@ -437,6 +487,18 @@ function draw(
         }
       }
     }
+  }
+
+  // 4.7. Stage 6: deploy hover-подсветка валидной/невалидной клетки
+  if (deployHover) {
+    const hx = deployHover.x * cellSize;
+    const hy = deployHover.y * cellSize;
+    const color = deployHover.valid ? '#39D98A' : '#FF3B30'; // зелёный / красный
+    ctx.fillStyle = color + '55'; // alpha ~33%
+    ctx.fillRect(hx, hy, cellSize, cellSize);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(1.5, cellSize * 0.1);
+    ctx.strokeRect(hx + 0.5, hy + 0.5, cellSize - 1, cellSize - 1);
   }
 
   // 5. Муравьи

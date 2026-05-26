@@ -8,7 +8,7 @@ import type {
   SandboxConfig, SandboxAntConfig, SandboxPlayerConfig,
   SandboxMode, UserPreset,
 } from '@core/contract/state';
-import { defaultState, defaultRuntimeState } from './defaultState';
+import { defaultState, defaultRuntimeState, defaultSandbox } from './defaultState';
 import { generateAnts, clampAntsToField } from '@lib/spawnPatterns';
 import { load, save, debounceSave } from '@lib/storage';
 import { PLAYER_PALETTE } from '@core/shared/constants';
@@ -32,6 +32,8 @@ interface SandboxActions {
   setPaused: (paused: boolean) => void;
   setActivePlayer: (playerId: string | null) => void;
   setSelectedAnt: (antId: string | null) => void;
+  /** Stage 6: вкл/выкл deploy-режим. */
+  setDeployMode: (on: boolean) => void;
 
   loadPreset: (config: SandboxConfig) => void;
   saveUserPreset: (name: string) => { ok: boolean; reason?: string };
@@ -55,8 +57,14 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     const base = defaultState();
     const savedConfig = load<SandboxConfig>(STORAGE_KEY_LAST_CONFIG);
     const savedPresets = load<UserPreset[]>(STORAGE_KEY_USER_PRESETS);
-    if (savedConfig) base.sandbox = mergeWithDefaults(savedConfig, base.sandbox);
-    if (savedPresets && Array.isArray(savedPresets)) base.userPresets = savedPresets;
+    if (savedConfig) base.sandbox = normalizeConfig(savedConfig);
+    // Stage 6: нормализуем user presets — старые могут не иметь новых полей
+    if (savedPresets && Array.isArray(savedPresets)) {
+      base.userPresets = savedPresets.map((p) => ({
+        ...p,
+        config: normalizeConfig(p.config),
+      }));
+    }
     base.sandboxRuntime = defaultRuntimeState(base.sandbox.players[0]?.id ?? null);
     return base;
   });
@@ -245,6 +253,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         ...s.sandboxRuntime,
         mode,
         paused: mode === 'edit' ? true : s.sandboxRuntime.paused,
+        // Stage 6: при переключении в edit — выходим из deploy mode
+        deployMode: mode === 'edit' ? false : s.sandboxRuntime.deployMode,
       },
     }));
   }, []);
@@ -261,10 +271,15 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     setState((s) => ({ ...s, sandboxRuntime: { ...s.sandboxRuntime, selectedAntId: antId } }));
   }, []);
 
+  // Stage 6: deploy mode toggle
+  const setDeployMode = useCallback((on: boolean) => {
+    setState((s) => ({ ...s, sandboxRuntime: { ...s.sandboxRuntime, deployMode: on } }));
+  }, []);
+
   const loadPreset = useCallback((config: SandboxConfig) => {
     setState((s) => ({
       ...s,
-      sandbox: structuredClone(config),
+      sandbox: normalizeConfig(structuredClone(config)),
       sandboxRuntime: defaultRuntimeState(config.players[0]?.id ?? null),
     }));
   }, []);
@@ -295,13 +310,13 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     patchSandbox, resetSandbox, reseed, resetWithSameSeed,
     addPlayer, removePlayer, patchPlayer, respawnAntsForPlayer,
     addAnt, removeAnt, patchAnt,
-    setMode, setPaused, setActivePlayer, setSelectedAnt,
+    setMode, setPaused, setActivePlayer, setSelectedAnt, setDeployMode,
     loadPreset, saveUserPreset, deleteUserPreset,
   }), [
     patchSandbox, resetSandbox, reseed, resetWithSameSeed,
     addPlayer, removePlayer, patchPlayer, respawnAntsForPlayer,
     addAnt, removeAnt, patchAnt,
-    setMode, setPaused, setActivePlayer, setSelectedAnt,
+    setMode, setPaused, setActivePlayer, setSelectedAnt, setDeployMode,
     loadPreset, saveUserPreset, deleteUserPreset,
   ]);
 
@@ -319,6 +334,21 @@ export function useAppState(): AppStateContextValue {
   return ctx;
 }
 
-function mergeWithDefaults(saved: Partial<SandboxConfig>, defaults: SandboxConfig): SandboxConfig {
-  return { ...defaults, ...saved, players: saved.players ?? defaults.players };
+/**
+ * Нормализует конфиг — добавляет дефолты для полей которые могли отсутствовать
+ * в JSON (старые пресеты до Stage 4/5/6, savedConfig из старой версии).
+ *
+ * Bug Stage 6: пресеты Stage 1-3 не имеют heatmapMode/mutation/reserveMode →
+ * undefined → крашит HeatmapLegend и др. Глубокий merge с defaults решает.
+ */
+function normalizeConfig(raw: any): SandboxConfig {
+  const defaults = defaultSandbox();
+  return {
+    ...defaults,
+    ...raw,
+    players: raw.players ?? defaults.players,
+    // Глубокий merge известных вложенных объектов
+    mutation: { ...defaults.mutation, ...(raw.mutation ?? {}) },
+    winCondition: { ...defaults.winCondition, ...(raw.winCondition ?? {}) },
+  };
 }

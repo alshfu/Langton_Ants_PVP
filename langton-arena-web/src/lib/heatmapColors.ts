@@ -53,6 +53,15 @@ const PALETTES: Record<HeatmapType, ColorStop[]> = {
  */
 export function heatmapColor(type: HeatmapType, value: number): [number, number, number] {
   const stops = PALETTES[type];
+  // Defensive: если type не входит в палитры (например, передан undefined из-за
+  // сломанного пресета) — возвращаем серый и логируем (один раз).
+  if (!stops) {
+    if (!warnedTypes.has(type as string)) {
+      warnedTypes.add(type as string);
+      console.warn(`heatmapColor: unknown type "${type}", falling back to grey`);
+    }
+    return [128, 128, 128];
+  }
   const v = Math.max(0, Math.min(1, value));
 
   // Найти диапазон stops для интерполяции
@@ -73,6 +82,8 @@ export function heatmapColor(type: HeatmapType, value: number): [number, number,
   const last = stops[stops.length - 1]!;
   return [last.r, last.g, last.b];
 }
+
+const warnedTypes = new Set<string>();
 
 /**
  * Цвета для legend (5 контрольных точек).

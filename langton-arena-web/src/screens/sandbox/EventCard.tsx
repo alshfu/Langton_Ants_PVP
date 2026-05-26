@@ -14,13 +14,15 @@ interface EventCardProps {
 }
 
 const EVENT_LABELS: Record<LogEventType, string> = {
-  capture: 'capture',
-  clash:   'clash',
-  death:   'death',
-  birth:   'birth',
-  hybrid:  'hybrid',
-  wild:    'wild',
-  mutant:  'mutant',
+  capture:    'capture',
+  clash:      'clash',
+  death:      'death',
+  birth:      'birth',
+  hybrid:     'hybrid',
+  wild:       'wild',
+  mutant:     'mutant',
+  reserve_in: 'reserve',
+  deploy:     'deploy',
 };
 
 export function EventCard({ event, onJumpTo }: EventCardProps) {
@@ -35,9 +37,11 @@ export function EventCard({ event, onJumpTo }: EventCardProps) {
       case 'clash':   return T.warning;
       case 'death':   return T.danger;
       case 'birth':   return T.success;
-      case 'hybrid':  return '#C77DFF';
-      case 'wild':    return '#8E8E93';
-      case 'mutant':  return '#FFD60A';     // Stage 5: золото
+      case 'hybrid':     return '#C77DFF';
+      case 'wild':       return '#8E8E93';
+      case 'mutant':     return '#FFD60A';     // Stage 5: золото
+      case 'reserve_in': return '#C77DFF';     // Stage 6: фиолетовый — в мешок
+      case 'deploy':     return '#00C2A8';     // Stage 6: бирюзовый — выпуск
     }
   })();
 
@@ -51,13 +55,15 @@ export function EventCard({ event, onJumpTo }: EventCardProps) {
 
   const description = (() => {
     switch (event.type) {
-      case 'capture': return `${playerName} took cell`;
-      case 'clash':   return `${event.meta?.ants ?? '?'} ants clashed`;
-      case 'death':   return `${playerName} ant died`;
-      case 'birth':   return `${playerName} ant born`;
-      case 'hybrid':  return `${playerName} hybrid born`;
-      case 'wild':    return `wild ant born`;
-      case 'mutant':  return `${playerName} mutant (${event.meta?.cause ?? '?'})`;
+      case 'capture':    return `${playerName} took cell`;
+      case 'clash':      return `${event.meta?.ants ?? '?'} ants clashed`;
+      case 'death':      return `${playerName} ant died`;
+      case 'birth':      return `${playerName} ant born`;
+      case 'hybrid':     return `${playerName} hybrid born`;
+      case 'wild':       return `wild ant born`;
+      case 'mutant':     return `${playerName} mutant (${event.meta?.cause ?? '?'})`;
+      case 'reserve_in': return `${playerName} ant → bag`;
+      case 'deploy':     return `${playerName} deployed ant`;
     }
   })();
 

@@ -3,8 +3,6 @@ import react from '@vitejs/plugin-react';
 import path from 'node:path';
 
 // https://vitejs.dev/config/
-// base: для GitHub Pages (https://alshfu.github.io/Langton_Ants_PVP/)
-// При локальной разработке Vite подставляет '/' автоматически.
 export default defineConfig({
   base: process.env.GITHUB_ACTIONS ? '/Langton_Ants_PVP/' : '/',
   plugins: [react()],

@@ -9,6 +9,7 @@ function makeStats(overrides: Partial<PlayerLiveStats> = {}): PlayerLiveStats {
     alive: 5, born: 0, lost: 0, captures: 0, kills: 0,
     territoryPct: 0.3, cellsOwned: 100,
     mutants: 0, mutantsAlive: 0,
+    reserve: 0,
     ...overrides,
   };
 }

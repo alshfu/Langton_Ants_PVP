@@ -12,34 +12,59 @@ export interface SimSnapshot {
   stateCopy: Uint8Array;
   antsCopy: Ant[];
   lastBirthTickByOwner: Record<number, number>;
+  /** Stage 6: состояние мешков на момент snapshot (key=playerIdx). */
+  reserveCopy?: Map<number, Ant[]>;
 }
 
 /**
  * Глубокая копия sim для последующего восстановления.
  * NOTE: rng не копируется — он не используется в детерминированном движке.
+ *
+ * Stage 6: можно передать reserveByPlayer чтобы записать в snapshot.
  */
-export function snapshot(sim: SimState): SimSnapshot {
-  return {
+export function snapshot(
+  sim: SimState,
+  reserveByPlayer?: Map<number, Ant[]>,
+): SimSnapshot {
+  const snap: SimSnapshot = {
     tick: sim.tick,
     ownerCopy: new Uint8Array(sim.owner),
     stateCopy: new Uint8Array(sim.state),
     antsCopy: sim.ants.map((a) => ({ ...a })),
     lastBirthTickByOwner: { ...sim.lastBirthTickByOwner },
   };
+  if (reserveByPlayer) {
+    snap.reserveCopy = new Map();
+    reserveByPlayer.forEach((ants, k) => {
+      snap.reserveCopy!.set(k, ants.map((a) => ({ ...a })));
+    });
+  }
+  return snap;
 }
 
 /**
  * Восстановить sim из snapshot. Перезаписывает поля in-place.
+ * Stage 6: если в snapshot есть reserve — он применяется к переданной Map.
  */
-export function restore(sim: SimState, snap: SimSnapshot): void {
+export function restore(
+  sim: SimState,
+  snap: SimSnapshot,
+  reserveByPlayer?: Map<number, Ant[]>,
+): void {
   sim.tick = snap.tick;
-  // Восстанавливаем размеры если изменились — не должны, но на всякий
   if (sim.owner.length === snap.ownerCopy.length) {
     sim.owner.set(snap.ownerCopy);
     sim.state.set(snap.stateCopy);
   }
   sim.ants = snap.antsCopy.map((a) => ({ ...a }));
   sim.lastBirthTickByOwner = { ...snap.lastBirthTickByOwner };
+  // Stage 6: восстанавливаем reserve если был сохранён
+  if (reserveByPlayer && snap.reserveCopy) {
+    reserveByPlayer.clear();
+    snap.reserveCopy.forEach((ants, k) => {
+      reserveByPlayer.set(k, ants.map((a) => ({ ...a })));
+    });
+  }
 }
 
 /**
