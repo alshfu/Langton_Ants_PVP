@@ -8,14 +8,16 @@
     "pnpm": ">=8.0.0"
   },
   "scripts": {
-    "build": "pnpm --filter langton-arena-web --filter @langton/core -r build",
-    "test": "pnpm --filter langton-arena-web --filter @langton/core -r --stream test",
-    "typecheck": "pnpm --filter langton-arena-web exec tsc --noEmit",
+    "build": "pnpm --filter langton-arena-web --filter @langton/core --filter @langton/mvp-server -r build",
+    "test": "pnpm --filter langton-arena-web --filter @langton/core --filter @langton/mvp-server -r --stream test",
+    "typecheck": "pnpm --filter langton-arena-web exec tsc --noEmit && pnpm --filter @langton/mvp-server exec tsc --noEmit",
     "test:web": "pnpm --filter langton-arena-web test",
     "test:core": "pnpm --filter @langton/core test",
+    "test:mvp": "pnpm --filter @langton/mvp-server test",
+    "dev:mvp": "pnpm --filter @langton/mvp-server dev",
     "audit": "pnpm --filter langton-arena-web exec node scripts/e2e-audit.mjs"
   },
   "comments": {
-    "scope": "Stage 8 Day 1 — services (api-gateway/ws-gateway/etc) пока без node_modules. Когда они активируются — расширить filters."
+    "scope": "Stage 8 Day 2 — добавлен mvp-server. Existing 5 services (api-gateway/ws-gateway/etc) пока без node_modules."
   }
 }
