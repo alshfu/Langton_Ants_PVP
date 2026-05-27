@@ -10,6 +10,14 @@
 </p>
 
 <p align="center">
+  <a href="https://alshfu.github.io/Langton_Ants_PVP/">
+    <img src="docs/demo.gif" alt="Langton Arena gameplay — Chaos Eight preset, 8 players competing for territory" width="700">
+  </a>
+</p>
+
+<p align="center"><sub>Chaos Eight preset · 8 players · Langton's Ant pattern formation at 20→80 TPS · recorded via <a href="langton-arena-web/scripts/record-demo.mjs"><code>scripts/record-demo.mjs</code></a></sub></p>
+
+<p align="center">
   <a href="https://alshfu.github.io/Langton_Ants_PVP/"><img src="https://img.shields.io/badge/demo-live-brightgreen?style=flat-square" alt="Live demo"></a>
   <img src="https://img.shields.io/badge/tests-138%2F138-brightgreen?style=flat-square" alt="138 tests">
   <img src="https://img.shields.io/badge/E2E_v4.0-175_pass_0_fail-brightgreen?style=flat-square" alt="E2E green">

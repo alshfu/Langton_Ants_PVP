@@ -30,3 +30,8 @@ out-tsc/
 
 # ── Misc ──────────────────────────────────────────
 *.tsbuildinfo
+
+# ── Demo recording ────────────────────────────────
+# Source webm — regenerable via scripts/record-demo.mjs.
+# Commit only docs/demo.gif (README hero) + docs/demo.mp4 (social).
+docs/demo.webm
