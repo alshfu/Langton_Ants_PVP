@@ -385,11 +385,6 @@ function draw(
     canvas.height = cssH * dpr;
     canvas.style.width  = `${cssW}px`;
     canvas.style.height = `${cssH}px`;
-    // Huge fields (1000×1000) могут превышать container — даём browser'у
-    // scale-down с preserving aspect ratio.
-    canvas.style.maxWidth = '100%';
-    canvas.style.maxHeight = '100%';
-    canvas.style.objectFit = 'contain';
   }
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
