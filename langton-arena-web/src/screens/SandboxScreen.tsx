@@ -33,7 +33,8 @@ import { Chip } from '@ui/Chip';
 
 import type { Ant, BirthConfig, SimState, StepEvents } from '@core/langton/engine';
 import type { SandboxLiveStats, PlayerLiveStats, LogEvent, SandboxConfig } from '@core/contract/state';
-import type { DeployAction } from '@core/contract/replay';
+import type { DeployAction, Replay } from '@core/contract/replay';
+import { saveReplay, loadReplay, generateReplayId } from '@lib/replayStorage';
 import { TabStrip, type SandboxTabId } from './sandbox/TabStrip';
 import { PlayersTab } from './sandbox/PlayersTab';
 import { AntsTab } from './sandbox/AntsTab';
@@ -53,6 +54,54 @@ import { computeAllHighlights } from '@lib/computeHighlights';
 import { computeMatchResult } from '@lib/computeMatchResult';
 import { canDeploy } from '@lib/deployValidation';
 import { MatchBanner } from '@components/MatchBanner';
+
+// ─── Stage 7.4: Media controls subcomponents ─────────────────────────────────
+
+function MediaControlGroup({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 4,
+      padding: '2px 4px',
+      background: 'rgba(255,255,255,0.04)',
+      borderRadius: 6,
+      border: '1px solid rgba(255,255,255,0.08)',
+    }}>
+      {children}
+    </div>
+  );
+}
+
+function MediaButton({
+  onClick, title, color, children,
+}: {
+  onClick: () => void;
+  title: string;
+  color: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      style={{
+        padding: '3px 8px', minWidth: 30,
+        background: 'transparent',
+        color,
+        border: `1px solid ${color}`,
+        borderRadius: 4,
+        fontFamily: 'JetBrains Mono, monospace',
+        fontSize: 11, fontWeight: 700,
+        cursor: 'pointer',
+        transition: 'background .15s',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = color + '20'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+    >
+      {children}
+    </button>
+  );
+}
 
 export function SandboxScreen() {
   const { tokens: T } = useTheme();
@@ -131,6 +180,8 @@ export function SandboxScreen() {
   const replayStartConfigRef = useRef<SandboxConfig | null>(null);
   // Stage 7: playback — pre-indexed inputs по тикам для O(1) lookup в onTick.
   const playbackInputsByTickRef = useRef<Map<number, DeployAction[]>>(new Map());
+  // Stage 7.4: trigger re-render счётчика deploys в media controls top-bar.
+  const [recordedCount, setRecordedCount] = useState(0);
 
   // Инициализация счётчиков при изменении списка игроков
   useEffect(() => {
@@ -305,6 +356,7 @@ export function SandboxScreen() {
     }
     // Stage 7: reset replay recording + snapshot стартового конфига
     replayDeploysRef.current = [];
+    setRecordedCount(0);
     replayStartConfigRef.current = structuredClone(cfg);
     sx.setMode('run');
     sx.setPaused(false);
@@ -326,6 +378,8 @@ export function SandboxScreen() {
     eventIdCounter.current = 0;
     firstDeathRef.current = null;
     reserveRef.current.clear(); // Stage 6 reset
+    replayDeploysRef.current = [];
+    setRecordedCount(0);
     const hm = heatmapRef.current;
     hm.deaths.fill(0);
     hm.captures.fill(0);
@@ -756,6 +810,7 @@ export function SandboxScreen() {
 
     // Stage 7: запись в replay timeline
     replayDeploysRef.current.push({ tick, playerIdx, x, y });
+    setRecordedCount(replayDeploysRef.current.length);
 
     showToast(`Deployed at (${x}, ${y})`, 'info');
   }, [cfg.players, cfg.deployRule, cfg.deployRadius, rt.activePlayerId, showToast]);
@@ -777,7 +832,7 @@ export function SandboxScreen() {
   // 2. startPlayback action — переключает в режим 'playback'
   // 3. pre-index inputs по тикам
   // 4. В onTick проверяем и re-apply каждый deploy
-  const startReplayPlayback = useCallback((replay: import('@core/contract/replay').Replay) => {
+  const startReplayPlayback = useCallback((replay: Replay) => {
     // Pre-index inputs by tick для O(1) lookup
     const byTick = new Map<number, DeployAction[]>();
     for (const action of replay.deployTimeline) {
@@ -791,6 +846,54 @@ export function SandboxScreen() {
     // setTimeout — потому что loadPreset переустанавливает state asynchronously
     setTimeout(() => sx.startPlayback(replay.metadata.id, replay.metadata.name), 50);
   }, [sx]);
+
+  // Stage 7.4: Media-controls callbacks для top-bar ─────────────────────────
+  const quickSaveReplay = useCallback(() => {
+    if (recordedCount === 0) {
+      showToast('Nothing to save — make at least 1 deploy', 'warn');
+      return;
+    }
+    if (!replayStartConfigRef.current) {
+      showToast('No start config recorded', 'err');
+      return;
+    }
+    const id = generateReplayId();
+    const name = `Quick · t${statsTick}`;
+    const replay: Replay = {
+      version: 1,
+      metadata: {
+        id, name,
+        createdAt: Date.now(),
+        durationTicks: statsTick,
+        deployCount: recordedCount,
+      },
+      config: replayStartConfigRef.current,
+      deployTimeline: [...replayDeploysRef.current],
+    };
+    const result = saveReplay(replay);
+    if (result.saved) showToast(`💾 Saved "${name}"`, 'info');
+    else showToast('Save failed (storage full?)', 'err');
+  }, [recordedCount, statsTick, showToast]);
+
+  const discardRecording = useCallback(() => {
+    if (recordedCount === 0) return;
+    if (!confirm(`Discard ${recordedCount} recorded deploy${recordedCount === 1 ? '' : 's'}?`)) return;
+    replayDeploysRef.current = [];
+    setRecordedCount(0);
+    showToast('Recording discarded', 'info');
+  }, [recordedCount, showToast]);
+
+  const restartCurrentPlayback = useCallback(() => {
+    if (rt.mode !== 'playback' || !rt.activeReplayId) return;
+    const replay = loadReplay(rt.activeReplayId);
+    if (!replay) {
+      showToast('Could not reload replay', 'err');
+      return;
+    }
+    sx.stopPlayback();
+    setTimeout(() => startReplayPlayback(replay), 60);
+    showToast('⏮ Replay restarted', 'info');
+  }, [rt.mode, rt.activeReplayId, sx, startReplayPlayback, showToast]);
 
   const renderTab = () => {
     switch (activeTab) {
@@ -899,28 +1002,47 @@ export function SandboxScreen() {
           {liveStats.totals.mutants > 0 && (
             <Chip color="#FFD60A" filled size="sm">🧬 {liveStats.totals.mutants} mutants</Chip>
           )}
-          {/* Stage 7: playback chip + stop button */}
-          {rt.mode === 'playback' && rt.activeReplayName && (
-            <>
-              <Chip color="#FFD60A" filled size="sm">
-                🎬 {rt.activeReplayName.length > 40 ? rt.activeReplayName.slice(0, 40) + '…' : rt.activeReplayName}
+          {/* Stage 7.4: Media controls — Recording (REC mode) */}
+          {rt.mode === 'run' && recordedCount > 0 && (
+            <MediaControlGroup>
+              <Chip color="#FF453A" filled size="sm">
+                🔴 REC · {recordedCount} deploy{recordedCount === 1 ? '' : 's'}
               </Chip>
-              <button
+              <MediaButton
+                onClick={quickSaveReplay}
+                title={`Save replay now (t${statsTick}, ${recordedCount} deploys)`}
+                color={T.accent}
+              >💾 Save</MediaButton>
+              <MediaButton
+                onClick={discardRecording}
+                title="Discard current recording"
+                color={T.danger}
+              >🗑</MediaButton>
+            </MediaControlGroup>
+          )}
+
+          {/* Stage 7.4: Media controls — Playback */}
+          {rt.mode === 'playback' && rt.activeReplayName && (
+            <MediaControlGroup>
+              <Chip color="#FFD60A" filled size="sm">
+                🎬 {rt.activeReplayName.length > 32 ? rt.activeReplayName.slice(0, 32) + '…' : rt.activeReplayName}
+              </Chip>
+              <MediaButton
+                onClick={() => sx.setPaused(!rt.paused)}
+                title={rt.paused ? 'Resume playback' : 'Pause playback'}
+                color="#FFD60A"
+              >{rt.paused ? '▶' : '⏸'}</MediaButton>
+              <MediaButton
+                onClick={restartCurrentPlayback}
+                title="Restart from beginning"
+                color="#FFD60A"
+              >⏮</MediaButton>
+              <MediaButton
                 onClick={() => sx.stopPlayback()}
-                style={{
-                  padding: '3px 10px',
-                  background: 'transparent',
-                  color: T.danger,
-                  border: `1px solid ${T.danger}`,
-                  borderRadius: T.radiusSm,
-                  fontFamily: 'JetBrains Mono, monospace',
-                  fontSize: 10, fontWeight: 700,
-                  cursor: 'pointer',
-                }}
-              >
-                ✕ Stop
-              </button>
-            </>
+                title="Stop playback and return to edit mode"
+                color={T.danger}
+              >⏹</MediaButton>
+            </MediaControlGroup>
           )}
           {/* Stage 6: reserve chip — показывается если хоть у кого-то есть в мешке */}
           {(() => {
