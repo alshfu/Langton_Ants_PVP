@@ -33,7 +33,7 @@ import { Chip } from '@ui/Chip';
 
 import type { Ant, BirthConfig, SimState, StepEvents } from '@core/langton/engine';
 import type { SandboxLiveStats, PlayerLiveStats, LogEvent, SandboxConfig } from '@core/contract/state';
-import type { DeployAction, Replay } from '@core/contract/replay';
+import type { DeployAction, Replay, ReplayMetadata } from '@core/contract/replay';
 import { saveReplay, loadReplay, generateReplayId } from '@lib/replayStorage';
 import { TabStrip, type SandboxTabId } from './sandbox/TabStrip';
 import { PlayersTab } from './sandbox/PlayersTab';
@@ -72,13 +72,17 @@ function MediaControlGroup({ children }: { children: React.ReactNode }) {
 }
 
 function MediaButton({
-  onClick, title, color, children,
+  onClick, title, color, children, filled = false,
 }: {
   onClick: () => void;
   title: string;
   color: string;
   children: React.ReactNode;
+  filled?: boolean;
 }) {
+  const bgIdle  = filled ? color : 'transparent';
+  const fgIdle  = filled ? '#000' : color;
+  const bgHover = filled ? color : color + '20';
   return (
     <button
       onClick={onClick}
@@ -86,8 +90,8 @@ function MediaButton({
       aria-label={title}
       style={{
         padding: '3px 8px', minWidth: 30,
-        background: 'transparent',
-        color,
+        background: bgIdle,
+        color: fgIdle,
         border: `1px solid ${color}`,
         borderRadius: 4,
         fontFamily: 'JetBrains Mono, monospace',
@@ -95,8 +99,8 @@ function MediaButton({
         cursor: 'pointer',
         transition: 'background .15s',
       }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = color + '20'; }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = bgHover; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = bgIdle; }}
     >
       {children}
     </button>
@@ -182,12 +186,23 @@ export function SandboxScreen() {
   const playbackInputsByTickRef = useRef<Map<number, DeployAction[]>>(new Map());
   // Stage 7.4: trigger re-render счётчика deploys в media controls top-bar.
   const [recordedCount, setRecordedCount] = useState(0);
+  // Stage 7.5: loop mode для replay playback.
+  // loopMode — для UI кнопки. loopModeRef — для чтения внутри onTick (stale closure).
+  const [loopMode, setLoopMode] = useState(false);
+  const loopModeRef = useRef(false);
+  // Metadata текущего playback — для определения когда замкнуть петлю.
+  const activeReplayMetaRef = useRef<ReplayMetadata | null>(null);
+  // Ref на restartCurrentPlayback чтобы onTick мог его вызвать без stale closure.
+  const restartCurrentPlaybackRef = useRef<() => void>(() => {});
 
   // Инициализация счётчиков при изменении списка игроков
   useEffect(() => {
     resetCounters();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cfg.players.length]);
+
+  // Stage 7.5: sync loopMode → ref для onTick closure (избегаем re-render каждый toggle)
+  useEffect(() => { loopModeRef.current = loopMode; }, [loopMode]);
 
   // Stage 4: переинициализация heatmap при смене размера поля
   useEffect(() => {
@@ -668,8 +683,16 @@ export function SandboxScreen() {
           replayPlaybackDeploy(action, sim);
         }
       }
-      // Проверка конца playback — все inputs прошли + текущий тик >= finalTick
-      // Здесь без авто-stop, пользователь сам нажмёт Exit
+      // Stage 7.5: Loop check — рестарт когда tick > durationTicks + 30 buffer
+      // (даём 30 ticks досмотреть финальный паттерн после последнего deploy).
+      // Guard: activeReplayMetaRef обнуляется в restartCurrentPlayback,
+      // восстанавливается в startReplayPlayback — защита от двойного триггера.
+      const meta = activeReplayMetaRef.current;
+      if (loopModeRef.current && meta && sim.tick >= meta.durationTicks + 30) {
+        activeReplayMetaRef.current = null;
+        // defer на следующий microtask — чтобы не дёргать setState внутри tick callback
+        Promise.resolve().then(() => restartCurrentPlaybackRef.current());
+      }
     }
 
     // Snapshot для step back каждые 50 тиков
@@ -841,6 +864,8 @@ export function SandboxScreen() {
       else byTick.set(action.tick, [action]);
     }
     playbackInputsByTickRef.current = byTick;
+    // Stage 7.5: запоминаем metadata для loop логики
+    activeReplayMetaRef.current = replay.metadata;
     // Загружаем начальный config + запускаем playback mode
     sx.loadPreset(replay.config);
     // setTimeout — потому что loadPreset переустанавливает state asynchronously
@@ -890,10 +915,17 @@ export function SandboxScreen() {
       showToast('Could not reload replay', 'err');
       return;
     }
+    // Stage 7.5: clear meta — guard от double-trigger loop проверки
+    activeReplayMetaRef.current = null;
     sx.stopPlayback();
     setTimeout(() => startReplayPlayback(replay), 60);
     showToast('⏮ Replay restarted', 'info');
   }, [rt.mode, rt.activeReplayId, sx, startReplayPlayback, showToast]);
+
+  // Stage 7.5: sync restartCurrentPlayback → ref для onTick
+  useEffect(() => {
+    restartCurrentPlaybackRef.current = restartCurrentPlayback;
+  }, [restartCurrentPlayback]);
 
   const renderTab = () => {
     switch (activeTab) {
@@ -1021,7 +1053,7 @@ export function SandboxScreen() {
             </MediaControlGroup>
           )}
 
-          {/* Stage 7.4: Media controls — Playback */}
+          {/* Stage 7.4 + 7.5: Media controls — Playback */}
           {rt.mode === 'playback' && rt.activeReplayName && (
             <MediaControlGroup>
               <Chip color="#FFD60A" filled size="sm">
@@ -1038,7 +1070,22 @@ export function SandboxScreen() {
                 color="#FFD60A"
               >⏮</MediaButton>
               <MediaButton
-                onClick={() => sx.stopPlayback()}
+                onClick={() => {
+                  setLoopMode((on) => {
+                    const next = !on;
+                    showToast(next ? '🔂 Loop enabled — auto-restart' : 'Loop disabled', 'info');
+                    return next;
+                  });
+                }}
+                title={loopMode ? 'Disable loop' : 'Enable loop — auto-restart at end'}
+                color={loopMode ? '#39D98A' : '#888'}
+                filled={loopMode}
+              >🔂</MediaButton>
+              <MediaButton
+                onClick={() => {
+                  activeReplayMetaRef.current = null;
+                  sx.stopPlayback();
+                }}
                 title="Stop playback and return to edit mode"
                 color={T.danger}
               >⏹</MediaButton>
