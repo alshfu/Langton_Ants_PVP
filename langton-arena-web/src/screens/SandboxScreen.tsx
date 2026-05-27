@@ -1034,30 +1034,25 @@ export function SandboxScreen() {
           {liveStats.totals.mutants > 0 && (
             <Chip color="#FFD60A" filled size="sm">🧬 {liveStats.totals.mutants} mutants</Chip>
           )}
-          {/* Stage 7.4 + 7.7: Media controls — всегда видны в run mode.
-              REC chip пульсирует красным когда есть deploys, иначе серый "ready". */}
+          {/* Stage 7.4 + 7.7 + 7.8: Media controls — всегда видны и vivid в run mode.
+              Чип всегда красный (universal recording indicator). Кнопки в bright
+              color независимо от counter — muted state выглядел как placeholder. */}
           {rt.mode === 'run' && (
             <MediaControlGroup>
-              <Chip
-                color={recordedCount > 0 ? '#FF453A' : '#888'}
-                filled={recordedCount > 0}
-                size="sm"
-              >
-                {recordedCount > 0
-                  ? `🔴 REC · ${recordedCount} deploy${recordedCount === 1 ? '' : 's'}`
-                  : '⚪ REC ready'}
+              <Chip color="#FF453A" filled size="sm">
+                🔴 REC · {recordedCount}
               </Chip>
               <MediaButton
                 onClick={quickSaveReplay}
                 title={recordedCount > 0
-                  ? `Save replay now (t${statsTick}, ${recordedCount} deploys)`
-                  : 'Make a deploy first to save a replay'}
-                color={recordedCount > 0 ? T.accent : '#666'}
+                  ? `Save replay now (t${statsTick}, ${recordedCount} deploy${recordedCount === 1 ? '' : 's'})`
+                  : 'Need at least 1 deploy to save'}
+                color={T.accent}
               >💾 Save</MediaButton>
               <MediaButton
                 onClick={discardRecording}
-                title={recordedCount > 0 ? 'Discard current recording' : 'Nothing to discard'}
-                color={recordedCount > 0 ? T.danger : '#666'}
+                title={recordedCount > 0 ? `Discard ${recordedCount} recorded deploys` : 'Nothing to discard yet'}
+                color={T.danger}
               >🗑</MediaButton>
             </MediaControlGroup>
           )}
