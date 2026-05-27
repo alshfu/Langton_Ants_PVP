@@ -27,6 +27,7 @@ export function Slider({
         </div>
       )}
       <input type="range" min={min} max={max} step={step} value={value}
+        aria-label={label ?? 'value'}
         onChange={(e) => onChange(parseFloat(e.target.value))}
         style={{ accentColor: T.accent, width: '100%' }} />
     </div>

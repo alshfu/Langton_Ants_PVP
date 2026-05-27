@@ -124,12 +124,23 @@ async function loadPreset(page, re) {
   if (await presetsBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
     await presetsBtn.click();
     await page.waitForTimeout(700);
-    const preset = page.locator('*').filter({ hasText: re }).first();
-    if (await preset.isVisible({ timeout: 1500 }).catch(() => false)) {
-      await preset.click();
+    // Точный селектор: карточка пресета — div с cursor:pointer + текст пресета.
+    // Старый `*` matcher брал родительский body и кликал в (0,0).
+    const card = page.locator('div[style*="cursor: pointer"]').filter({ hasText: re }).first();
+    if (await card.isVisible({ timeout: 1500 }).catch(() => false)) {
+      await card.click();
       await page.waitForTimeout(500);
+      return true;
+    }
+    // Fallback на широкий селектор (для legacy случаев)
+    const fallback = page.locator('*').filter({ hasText: re }).first();
+    if (await fallback.isVisible({ timeout: 800 }).catch(() => false)) {
+      await fallback.click();
+      await page.waitForTimeout(500);
+      return true;
     }
   }
+  return false;
 }
 
 async function runFor(page, ms) {
@@ -427,8 +438,8 @@ async function testMutations(page) {
     return;
   }
   const body = await page.locator('body').innerText().catch(() => '');
-  // Mutation conditions (engine reacts to certain triggers)
-  for (const kw of ['halo', 'mirror', 'path', 'spectacle']) {
+  // Mutation triggers — все 3 detectable в MutationsTab (halo / mirror / path)
+  for (const kw of ['halo', 'mirror', 'path']) {
     if (new RegExp(kw, 'i').test(body)) pass('MUTATIONS', `Trigger: ${kw}`, 'present in UI');
     else warn('MUTATIONS', `Trigger: ${kw}`, 'not visible');
   }
@@ -644,15 +655,26 @@ async function testPresetsDeep(page) {
 
 // ─── NEW: Deploy mode (Stage 6) ──────────────────────────────────────────────
 async function testDeploy(page) {
-  await loadPreset(page, /Defense Stand/i);
+  const loaded = await loadPreset(page, /Defense Stand/i);
+  if (!loaded) {
+    warn('DEPLOY', 'Defense Stand preset', 'not loadable — skipping');
+    return;
+  }
   await page.waitForTimeout(250);
+  // Speed ×8 чтобы за 6 сек получить ~720 ticks, гарантированно покрывая
+  // birthCooldownTicks * несколько циклов
+  const sp8 = page.locator('button').filter({ hasText: /^8$/ }).first();
+  if (await sp8.isVisible({ timeout: 800 }).catch(() => false)) {
+    await sp8.click();
+    await page.waitForTimeout(120);
+  }
   await clickBtn(page, /Run/i, 'DEPLOY', 'Run from preset');
-  await runFor(page, 4000);
+  await page.waitForTimeout(6000);
   await pauseIfRunning(page);
 
   const body = await page.locator('body').innerText().catch(() => '');
   if (/📦\s*\d/.test(body)) pass('DEPLOY', 'Reserve chip in top bar', 'visible');
-  else warn('DEPLOY', 'Reserve chip', 'not visible after 4s sim — bag may be empty');
+  else warn('DEPLOY', 'Reserve chip', 'not visible after 6s×8 sim — preset may need faster births');
 
   const deployBtn = page.locator('button').filter({ hasText: /📦\s*Deploy/i }).first();
   if (await deployBtn.isVisible({ timeout: 1500 }).catch(() => false)) {

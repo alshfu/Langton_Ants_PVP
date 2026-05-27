@@ -128,6 +128,7 @@ export function TransportBar({
           value={customStep}
           onChange={(e) => setCustomStep(e.target.value)}
           disabled={!rt.paused}
+          aria-label="Custom step count"
           title="Custom step count"
           style={{
             width: 56, padding: '4px 6px',

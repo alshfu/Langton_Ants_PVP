@@ -288,6 +288,7 @@ function ExportImportSection({ onToast }: ExportImportProps) {
         <input
           type="file"
           accept=".json,application/json"
+          aria-label="Import preset or replay JSON"
           style={{ display: 'none' }}
           onChange={(e) => {
             const file = e.target.files?.[0];
