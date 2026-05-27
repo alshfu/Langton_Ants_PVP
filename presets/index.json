@@ -100,6 +100,10 @@
     {
       "id": "sym-star-burst",
       "file": "sym-star-burst.json"
+    },
+    {
+      "id": "macro-canvas",
+      "file": "macro-canvas.json"
     }
   ]
 }
