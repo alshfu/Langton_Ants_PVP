@@ -30,16 +30,31 @@ export function FieldTab() {
       <Section title="Size">
         <Field label="Width" hint={`${cfg.width}`}>
           <Slider
-            value={cfg.width} min={20} max={200}
+            value={cfg.width} min={20} max={1000}
             onChange={(v) => sx.patchSandbox({ width: Math.round(v) })}
           />
         </Field>
         <Field label="Height" hint={`${cfg.height}`}>
           <Slider
-            value={cfg.height} min={20} max={200}
+            value={cfg.height} min={20} max={1000}
             onChange={(v) => sx.patchSandbox({ height: Math.round(v) })}
           />
         </Field>
+        {cfg.width * cfg.height >= 250_000 && (
+          <div style={{
+            fontSize: 10, color: T.warning,
+            fontFamily: 'JetBrains Mono, monospace',
+            padding: 6,
+            background: T.warning + '15',
+            border: `1px solid ${T.warning}50`,
+            borderRadius: T.radiusSm,
+            lineHeight: 1.4,
+          }}>
+            ⚠ Huge field ({(cfg.width * cfg.height / 1000).toFixed(0)}K cells) — step-back snapshots
+            disabled above 500K, FPS may drop with many ants. Cells render at 1px so ants
+            look like dots.
+          </div>
+        )}
         {inRun && (
           <div style={{ fontSize: 10, color: T.warning, fontFamily: 'JetBrains Mono, monospace' }}>
             ! Reset to apply size changes

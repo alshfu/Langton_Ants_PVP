@@ -385,6 +385,11 @@ function draw(
     canvas.height = cssH * dpr;
     canvas.style.width  = `${cssW}px`;
     canvas.style.height = `${cssH}px`;
+    // Huge fields (1000×1000) могут превышать container — даём browser'у
+    // scale-down с preserving aspect ratio.
+    canvas.style.maxWidth = '100%';
+    canvas.style.maxHeight = '100%';
+    canvas.style.objectFit = 'contain';
   }
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
@@ -502,7 +507,8 @@ function draw(
   }
 
   // 5. Муравьи
-  const r = (cellSize * antScale) / 2;
+  // На больших полях cellSize=1, ant был бы 0.5px — не видно. Минимум 1.5 для видимости.
+  const r = Math.max(1.5, (cellSize * antScale) / 2);
   for (const a of sim.ants) {
     if (a.dead) continue;
     const cx = a.x * cellSize + cellSize / 2;

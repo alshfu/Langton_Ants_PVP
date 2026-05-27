@@ -230,7 +230,9 @@ export function SandboxScreen() {
   ]);
 
   const effectiveTps = cfg.baseTps * cfg.speedMultiplier;
-  const cellSize = Math.max(3, Math.min(14, Math.floor(800 / cfg.width)));
+  // cellSize: target canvas ≤ 800px. Большие поля (W > 250) — 1px на клетку (макро-режим).
+  // Малые поля (W ≤ 50) — крупные cells вплоть до 14px.
+  const cellSize = Math.max(1, Math.min(14, Math.floor(800 / Math.max(cfg.width, cfg.height))));
   const totalAnts = cfg.players.reduce((n, p) => n + p.ants.length, 0);
 
   // ─── Edit-mode handlers ─────────────────────────────────────────────────

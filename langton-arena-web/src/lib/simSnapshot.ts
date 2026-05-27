@@ -80,17 +80,34 @@ export class SnapshotHistory {
     this.maxSnapshots = maxSnapshots;
   }
 
+  /**
+   * Адаптивный лимит по размеру поля — каждый snapshot хранит 2 × W×H байт
+   * (owner + state). На 1000×1000 это 2MB/snap × 100 = 200MB → дисфорсим.
+   * Возвращает максимально допустимое число snapshots для данного field size.
+   */
+  private maxForField(sim: SimState): number {
+    const cells = sim.w * sim.h;
+    if (cells <= 50_000)   return this.maxSnapshots;       // 50K cells = 100KB/snap × 100 = 10MB
+    if (cells <= 250_000)  return Math.min(this.maxSnapshots, 50);  // 250K = 500KB/snap × 50 = 25MB
+    if (cells <= 500_000)  return Math.min(this.maxSnapshots, 20);  // 500K = 1MB × 20 = 20MB
+    return 0;  // >500K: отключаем step back, иначе память съест браузер
+  }
+
   /** Вызывается на каждом тике. Сохраняет snapshot когда tick % interval === 0. */
   maybeCapture(sim: SimState, reserveByPlayer?: Map<number, Ant[]>): void {
     if (sim.tick % this.intervalTicks !== 0) return;
+    const cap = this.maxForField(sim);
+    if (cap === 0) return;  // huge field — step back недоступен
     this.items.push(snapshot(sim, reserveByPlayer));
-    while (this.items.length > this.maxSnapshots) this.items.shift();
+    while (this.items.length > cap) this.items.shift();
   }
 
   /** Принудительно сохранить (например, в начале симуляции при tick=0). */
   capture(sim: SimState, reserveByPlayer?: Map<number, Ant[]>): void {
+    const cap = this.maxForField(sim);
+    if (cap === 0) return;
     this.items.push(snapshot(sim, reserveByPlayer));
-    while (this.items.length > this.maxSnapshots) this.items.shift();
+    while (this.items.length > cap) this.items.shift();
   }
 
   /**
