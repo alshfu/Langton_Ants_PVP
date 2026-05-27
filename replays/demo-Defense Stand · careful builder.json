@@ -1,0 +1,250 @@
+{
+  "version": 1,
+  "metadata": {
+    "id": "demo-Defense Stand · careful builder",
+    "name": "Defense Stand · careful builder",
+    "createdAt": 1779840000000,
+    "durationTicks": 600,
+    "deployCount": 10,
+    "presetName": "defense-stand"
+  },
+  "config": {
+    "width": 60,
+    "height": 60,
+    "topology": "torus",
+    "bgColor": "#0A081A",
+    "showGrid": false,
+    "players": [
+      {
+        "id": "player_0",
+        "name": "P1",
+        "color": "#FF5470",
+        "ruleId": "spiral",
+        "startHp": 3,
+        "spawnPattern": "corner",
+        "antCount": 3,
+        "ants": [
+          {
+            "id": "p0_a0",
+            "x": 2,
+            "y": 2,
+            "dir": 2,
+            "ruleOverride": null
+          },
+          {
+            "id": "p0_a1",
+            "x": 3,
+            "y": 3,
+            "dir": 2,
+            "ruleOverride": null
+          },
+          {
+            "id": "p0_a2",
+            "x": 4,
+            "y": 4,
+            "dir": 2,
+            "ruleOverride": null
+          }
+        ]
+      },
+      {
+        "id": "player_1",
+        "name": "P2",
+        "color": "#4DA8FF",
+        "ruleId": "spiral",
+        "startHp": 3,
+        "spawnPattern": "corner",
+        "antCount": 3,
+        "ants": [
+          {
+            "id": "p1_a0",
+            "x": 57,
+            "y": 2,
+            "dir": 2,
+            "ruleOverride": null
+          },
+          {
+            "id": "p1_a1",
+            "x": 56,
+            "y": 3,
+            "dir": 2,
+            "ruleOverride": null
+          },
+          {
+            "id": "p1_a2",
+            "x": 55,
+            "y": 4,
+            "dir": 2,
+            "ruleOverride": null
+          }
+        ]
+      },
+      {
+        "id": "player_2",
+        "name": "P3",
+        "color": "#39D98A",
+        "ruleId": "spiral",
+        "startHp": 3,
+        "spawnPattern": "corner",
+        "antCount": 3,
+        "ants": [
+          {
+            "id": "p2_a0",
+            "x": 57,
+            "y": 57,
+            "dir": 0,
+            "ruleOverride": null
+          },
+          {
+            "id": "p2_a1",
+            "x": 56,
+            "y": 56,
+            "dir": 0,
+            "ruleOverride": null
+          },
+          {
+            "id": "p2_a2",
+            "x": 55,
+            "y": 55,
+            "dir": 0,
+            "ruleOverride": null
+          }
+        ]
+      },
+      {
+        "id": "player_3",
+        "name": "P4",
+        "color": "#FFD60A",
+        "ruleId": "spiral",
+        "startHp": 3,
+        "spawnPattern": "corner",
+        "antCount": 3,
+        "ants": [
+          {
+            "id": "p3_a0",
+            "x": 2,
+            "y": 57,
+            "dir": 0,
+            "ruleOverride": null
+          },
+          {
+            "id": "p3_a1",
+            "x": 3,
+            "y": 56,
+            "dir": 0,
+            "ruleOverride": null
+          },
+          {
+            "id": "p3_a2",
+            "x": 4,
+            "y": 55,
+            "dir": 0,
+            "ruleOverride": null
+          }
+        ]
+      }
+    ],
+    "hpEnabled": true,
+    "damageCapEnabled": true,
+    "collisionCooldownTicks": 5,
+    "birthEnabled": true,
+    "birthMinNeighbors": 2,
+    "birthCooldownTicks": 20,
+    "maxAntsPerPlayer": 30,
+    "unlimitedAnts": false,
+    "hybridChance": 0.1,
+    "wildBirthChance": 0,
+    "showGlow": true,
+    "showTrails": true,
+    "showHpDots": true,
+    "showDirectionArrows": false,
+    "showCellState": false,
+    "skinPack": "shape",
+    "heatmapMode": "off",
+    "heatmapOpacity": 0.55,
+    "antScale": 0.9,
+    "trailDecay": 0.94,
+    "baseTps": 15,
+    "speedMultiplier": 1,
+    "seed": 6001,
+    "mutation": {
+      "enabled": false,
+      "haloEnabled": false,
+      "haloMinNeighbors": 6,
+      "mirrorEnabled": false,
+      "mirrorRadius": 2,
+      "pathEnabled": false,
+      "pathStraightTicks": 10
+    },
+    "winCondition": {
+      "kind": "none",
+      "threshold": 5
+    },
+    "reserveMode": true,
+    "deployRule": "own_territory",
+    "deployRadius": 3
+  },
+  "deployTimeline": [
+    {
+      "tick": 410,
+      "playerIdx": 0,
+      "x": 15,
+      "y": 15
+    },
+    {
+      "tick": 415,
+      "playerIdx": 0,
+      "x": 16,
+      "y": 15
+    },
+    {
+      "tick": 420,
+      "playerIdx": 0,
+      "x": 15,
+      "y": 16
+    },
+    {
+      "tick": 425,
+      "playerIdx": 0,
+      "x": 14,
+      "y": 15
+    },
+    {
+      "tick": 430,
+      "playerIdx": 0,
+      "x": 15,
+      "y": 14
+    },
+    {
+      "tick": 460,
+      "playerIdx": 1,
+      "x": 45,
+      "y": 45
+    },
+    {
+      "tick": 465,
+      "playerIdx": 1,
+      "x": 46,
+      "y": 45
+    },
+    {
+      "tick": 470,
+      "playerIdx": 1,
+      "x": 45,
+      "y": 46
+    },
+    {
+      "tick": 500,
+      "playerIdx": 2,
+      "x": 45,
+      "y": 15
+    },
+    {
+      "tick": 510,
+      "playerIdx": 3,
+      "x": 15,
+      "y": 45
+    }
+  ],
+  "_description": "A patient strategy: P0 accumulates 5 ants then drops them as a cluster at t=410 to break through the contested center. P1, P2, P3 respond with their own deployments. Watch how each player's playstyle differs."
+}
