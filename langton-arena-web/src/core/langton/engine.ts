@@ -2,12 +2,16 @@
 //
 // Полностью рабочий сим-движок Лэнгтона.
 // Поддерживает: HP, immunity frames, damage cap, рождение/гибриды/диких.
+// Stage 7.6: 4 topology modes (torus / wall / bounce / void).
 //
 // Используется в SandboxScreen для live-визуализации.
 // В production-варианте этот код будет общим с бэкендом (через @langton/core).
 
 import { LA_DIRS } from './rules';
 import { mulberry32, type PRNG } from './prng';
+
+/** Stage 7.6: поведение муравья при попытке пересечь край поля. */
+export type Topology = 'torus' | 'wall' | 'bounce' | 'void';
 
 export interface Ant {
   id: string;
@@ -73,6 +77,8 @@ export interface SimState {
   lastBirthTickByOwner: Record<number, number>;
   rng: PRNG;
   seed: number;
+  /** Stage 7.6: поведение на краях. По умолчанию 'torus' (wrap-around). */
+  topology: Topology;
 }
 
 export interface StepEvents {
@@ -101,6 +107,8 @@ export interface MakeStateConfig {
   /** Stage 3: false → урон накопительный, каждый враг −1 HP. По умолчанию true. */
   damageCapEnabled?: boolean;
   birthConfig?: BirthConfig | null;
+  /** Stage 7.6: топология поля. По умолчанию 'torus'. */
+  topology?: Topology;
 }
 
 export function makeLangtonState(config: MakeStateConfig): SimState {
@@ -110,6 +118,7 @@ export function makeLangtonState(config: MakeStateConfig): SimState {
     hpEnabled = true,
     damageCapEnabled = true,
     birthConfig = null,
+    topology = 'torus',
   } = config;
 
   const owner = new Uint8Array(w * h);
@@ -145,7 +154,44 @@ export function makeLangtonState(config: MakeStateConfig): SimState {
     lastBirthTickByOwner: {},
     rng: mulberry32(seed),
     seed,
+    topology,
   };
+}
+
+/**
+ * Stage 7.6: применить движение муравья учитывая topology.
+ * Возвращает true если муравей умер (void). Дёргает a.x/a.y/a.dir/a.dead in place.
+ *
+ * - **torus**: wrap-around — `(x + dx + w) % w`
+ * - **wall**:  если next pos out of bounds — остаётся на месте (не двигается).
+ *              Не разворачивается; на следующем тике Langton-логика повернёт его
+ *              по правилу.
+ * - **bounce**: если next pos OOB — поворот на 180° (dir + 2), и не двигается.
+ *              Следующий тик попробует в другую сторону.
+ * - **void**:  если next pos OOB — муравей умирает.
+ */
+function applyMove(a: Ant, dx: number, dy: number, w: number, h: number, topo: Topology): boolean {
+  const nx = a.x + dx;
+  const ny = a.y + dy;
+  const oob = nx < 0 || nx >= w || ny < 0 || ny >= h;
+
+  switch (topo) {
+    case 'torus':
+      a.x = (nx + w) % w;
+      a.y = (ny + h) % h;
+      return false;
+    case 'wall':
+      if (!oob) { a.x = nx; a.y = ny; }
+      return false;
+    case 'bounce':
+      if (!oob) { a.x = nx; a.y = ny; }
+      else { a.dir = ((a.dir + 2) & 3) as 0 | 1 | 2 | 3; }
+      return false;
+    case 'void':
+      if (oob) { a.dead = true; return true; }
+      a.x = nx; a.y = ny;
+      return false;
+  }
 }
 
 export function stepLangton(sim: SimState): StepEvents {
@@ -177,8 +223,11 @@ export function stepLangton(sim: SimState): StepEvents {
     }
 
     const dir = LA_DIRS[a.dir]!;
-    a.x = (a.x + dir[0] + w) % w;
-    a.y = (a.y + dir[1] + h) % h;
+    // Stage 7.6: движение учитывает topology
+    const died = applyMove(a, dir[0], dir[1], w, h, sim.topology);
+    if (died) {
+      events.deaths.push({ id: a.id, owner: a.owner, x: a.x, y: a.y });
+    }
   }
 
   // ─── 2. Группировка по клеткам, разрешение коллизий ───────────────────────

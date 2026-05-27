@@ -46,6 +46,8 @@ export interface LangtonFieldProps {
   /** Stage 3: если false — урон накопительный. */
   damageCapEnabled?: boolean;
   birthConfig?: BirthConfig | null;
+  /** Stage 7.6: топология поля — torus / wall / bounce / void. */
+  topology?: import('@core/langton/engine').Topology;
 
   // Визуал
   glow?: boolean;
@@ -108,6 +110,7 @@ export const LangtonField = forwardRef<LangtonFieldHandle, LangtonFieldProps>(fu
   seed = 1, collisionCooldownTicks = 5,
   hpEnabled = true, damageCapEnabled = true,
   birthConfig = null,
+  topology = 'torus',
   selectedAntId = null,
   editMode = false,
   onCellClick, onCellContextMenu, onCellWheel,
@@ -127,11 +130,18 @@ export const LangtonField = forwardRef<LangtonFieldHandle, LangtonFieldProps>(fu
       collisionCooldownTicks,
       hpEnabled, damageCapEnabled,
       birthConfig,
+      topology,
     });
     trailRef.current = new Float32Array(w * h);
     force((n) => n + 1);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [w, h, seed, JSON.stringify(ants)]);
+
+  // Stage 7.6: live update topology — переключение режима ощущается мгновенно
+  // без reset симуляции (отдельный effect, не в deps re-build).
+  useEffect(() => {
+    if (simRef.current) simRef.current.topology = topology;
+  }, [topology]);
 
   // Live параметры без пересоздания
   useEffect(() => {

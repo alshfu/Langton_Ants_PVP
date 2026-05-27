@@ -19,6 +19,7 @@ function makeSim(overrides: Partial<SimState> = {}): SimState {
     hpEnabled: true,
     damageCapEnabled: true,
     lastBirthTickByOwner: {},
+    topology: 'torus',
     ...overrides,
   };
 }

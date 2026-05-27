@@ -1161,6 +1161,7 @@ export function SandboxScreen() {
               collisionCooldownTicks={cfg.collisionCooldownTicks}
               hpEnabled={cfg.hpEnabled}
               damageCapEnabled={cfg.damageCapEnabled}
+              topology={cfg.topology}
               birthConfig={birthConfig}
               selectedAntId={rt.selectedAntId}
               editMode={rt.mode === 'edit'}
