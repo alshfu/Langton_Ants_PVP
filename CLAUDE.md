@@ -190,9 +190,13 @@ cd /tmp/langton-wiki && git push origin master:master
 
 | Параметр | Значение |
 |----------|---------|
-| Стадия | Stage 5 (мутации, win conditions) |
-| Тесты | 65/65 |
-| E2E на продакшне | 99 PASS / 0 FAIL |
+| Стадия | Stage 7.5 (replays + URL share + loop + media controls + 1000×1000) |
+| Тесты (vitest) | 115/115 |
+| E2E v4.0 на продакшне | 174 PASS / 0 FAIL / 0 WARN 🟢 |
+| Web Vitals (cold) | TTFB ~775ms · FCP/LCP ~1256ms (good) |
+| FPS под нагрузкой | 120 (5s стресс) |
 | Деплой | https://alshfu.github.io/Langton_Ants_PVP/ |
-| Пресеты | 13 штук |
-| Вкладок Sandbox | 10 |
+| Пресеты | 26 (15 классических + 10 symmetric + macro-canvas) |
+| Вкладок Sandbox | 11 (added Mutations + Replays) |
+| Max размер поля | 1000×1000 (adaptive cellSize + snapshots) |
+| Последний коммит main | `e70b32b` · gh-pages `eccd84f` · wiki `612be35` |
