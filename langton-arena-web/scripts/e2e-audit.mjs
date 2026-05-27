@@ -338,6 +338,14 @@ async function testCanvasInteractions(page) {
     return;
   }
   info('CANVAS', 'Bounds', `w=${Math.round(box.width)} h=${Math.round(box.height)}`);
+  // Stage 7.5.1 regression guard: canvas с style.maxHeight:100% в родителе без
+  // explicit height коллапсирует в 0 в Chromium (pixel-diff не ловит это —
+  // он смотрит на internal pixel buffer). Отдельно проверяем DOM rect.
+  if (box.height < 50 || box.width < 50) {
+    fail('CANVAS', 'Canvas DOM rect collapsed', `${Math.round(box.width)}×${Math.round(box.height)} — visual size < 50px (CSS height:0?)`);
+  } else {
+    pass('CANVAS', 'Canvas DOM rect visible', `${Math.round(box.width)}×${Math.round(box.height)}`);
+  }
 
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await page.waitForTimeout(200);
