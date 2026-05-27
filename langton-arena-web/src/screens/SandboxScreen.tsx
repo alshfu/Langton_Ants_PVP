@@ -186,6 +186,13 @@ export function SandboxScreen() {
   const playbackInputsByTickRef = useRef<Map<number, DeployAction[]>>(new Map());
   // Stage 7.4: trigger re-render счётчика deploys в media controls top-bar.
   const [recordedCount, setRecordedCount] = useState(0);
+  // Stage 7.9: можно полностью отключить запись (deploys не пишутся в timeline).
+  // Persist в localStorage чтобы preference оставался между сессиями.
+  const [recordingEnabled, setRecordingEnabled] = useState<boolean>(() => {
+    if (typeof localStorage === 'undefined') return true;
+    const v = localStorage.getItem('langton.recording.enabled');
+    return v === null ? true : v === 'true';
+  });
   // Stage 7.5: loop mode для replay playback.
   // loopMode — для UI кнопки. loopModeRef — для чтения внутри onTick (stale closure).
   const [loopMode, setLoopMode] = useState(false);
@@ -831,12 +838,14 @@ export function SandboxScreen() {
       if (stats) stats.reserve = Math.max(0, stats.reserve - 1);
     }
 
-    // Stage 7: запись в replay timeline
-    replayDeploysRef.current.push({ tick, playerIdx, x, y });
-    setRecordedCount(replayDeploysRef.current.length);
+    // Stage 7: запись в replay timeline (если recording не отключён)
+    if (recordingEnabled) {
+      replayDeploysRef.current.push({ tick, playerIdx, x, y });
+      setRecordedCount(replayDeploysRef.current.length);
+    }
 
     showToast(`Deployed at (${x}, ${y})`, 'info');
-  }, [cfg.players, cfg.deployRule, cfg.deployRadius, rt.activePlayerId, showToast]);
+  }, [cfg.players, cfg.deployRule, cfg.deployRadius, rt.activePlayerId, recordingEnabled, showToast]);
 
   const isDeployValid = useCallback((x: number, y: number) => {
     if (!rt.activePlayerId) return false;
@@ -1034,26 +1043,54 @@ export function SandboxScreen() {
           {liveStats.totals.mutants > 0 && (
             <Chip color="#FFD60A" filled size="sm">🧬 {liveStats.totals.mutants} mutants</Chip>
           )}
-          {/* Stage 7.4 + 7.7 + 7.8: Media controls — всегда видны и vivid в run mode.
-              Чип всегда красный (universal recording indicator). Кнопки в bright
-              color независимо от counter — muted state выглядел как placeholder. */}
+          {/* Stage 7.4-7.9: Media controls в run mode.
+              Чип-toggle — клик переключает recording on/off (persist в localStorage).
+              При off: deploys в timeline не пишутся, Save/Discard не имеют смысла. */}
           {rt.mode === 'run' && (
             <MediaControlGroup>
-              <Chip color="#FF453A" filled size="sm">
-                🔴 REC · {recordedCount}
-              </Chip>
-              <MediaButton
-                onClick={quickSaveReplay}
-                title={recordedCount > 0
-                  ? `Save replay now (t${statsTick}, ${recordedCount} deploy${recordedCount === 1 ? '' : 's'})`
-                  : 'Need at least 1 deploy to save'}
-                color={T.accent}
-              >💾 Save</MediaButton>
-              <MediaButton
-                onClick={discardRecording}
-                title={recordedCount > 0 ? `Discard ${recordedCount} recorded deploys` : 'Nothing to discard yet'}
-                color={T.danger}
-              >🗑</MediaButton>
+              <button
+                onClick={() => {
+                  setRecordingEnabled((v) => {
+                    const next = !v;
+                    try { localStorage.setItem('langton.recording.enabled', String(next)); } catch {}
+                    showToast(next ? '🔴 Recording enabled' : '⏸ Recording disabled — deploys not saved', 'info');
+                    return next;
+                  });
+                }}
+                title={recordingEnabled
+                  ? 'Click to disable recording — deploys will not be saved to replay timeline'
+                  : 'Click to enable recording'}
+                aria-label={recordingEnabled ? 'Disable recording' : 'Enable recording'}
+                style={{
+                  padding: '3px 10px',
+                  background: recordingEnabled ? '#FF453A' : 'transparent',
+                  color: recordingEnabled ? '#fff' : '#888',
+                  border: `1px solid ${recordingEnabled ? '#FF453A' : '#666'}`,
+                  borderRadius: 999,
+                  fontFamily: 'JetBrains Mono, monospace',
+                  fontSize: 11, fontWeight: 700,
+                  cursor: 'pointer',
+                  transition: 'all .15s',
+                }}
+              >
+                {recordingEnabled ? `🔴 REC · ${recordedCount}` : '⏸ REC OFF'}
+              </button>
+              {recordingEnabled && (
+                <>
+                  <MediaButton
+                    onClick={quickSaveReplay}
+                    title={recordedCount > 0
+                      ? `Save replay now (t${statsTick}, ${recordedCount} deploy${recordedCount === 1 ? '' : 's'})`
+                      : 'Need at least 1 deploy to save'}
+                    color={T.accent}
+                  >💾 Save</MediaButton>
+                  <MediaButton
+                    onClick={discardRecording}
+                    title={recordedCount > 0 ? `Discard ${recordedCount} recorded deploys` : 'Nothing to discard yet'}
+                    color={T.danger}
+                  >🗑</MediaButton>
+                </>
+              )}
             </MediaControlGroup>
           )}
 
