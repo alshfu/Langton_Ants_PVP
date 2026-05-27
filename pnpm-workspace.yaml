@@ -1,0 +1,4 @@
+packages:
+  - 'langton-arena-web'
+  - 'langton-arena-backend/core'
+  - 'langton-arena-backend/services/*'

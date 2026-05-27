@@ -22,6 +22,8 @@ dist/
 build/
 out-tsc/
 /tmp
+langton-arena-backend/core/dist/
+langton-arena-backend/**/dist/
 
 # ── Env / secrets ─────────────────────────────────
 .env

@@ -21,18 +21,33 @@
 
     "baseUrl": ".",
     "paths": {
-      "@/*":           ["src/*"],
-      "@core/*":       ["src/core/*"],
-      "@theme/*":      ["src/theme/*"],
-      "@i18n/*":       ["src/i18n/*"],
-      "@state/*":      ["src/state/*"],
-      "@ui/*":         ["src/ui/*"],
-      "@components/*": ["src/components/*"],
-      "@screens/*":    ["src/screens/*"],
-      "@router/*":     ["src/router/*"],
-      "@lib/*":        ["src/lib/*"]
+      "@/*":                  ["src/*"],
+      "@core/langton/*":      ["../langton-arena-backend/core/src/langton/*"],
+      "@core/contract/*":     ["../langton-arena-backend/core/src/contract/*"],
+      "@core/shared/*":       ["src/core/shared/*"],
+      "@core/*":              ["src/core/*"],
+      "@langton/core":        ["../langton-arena-backend/core/src/index.ts"],
+      "@theme/*":             ["src/theme/*"],
+      "@i18n/*":              ["src/i18n/*"],
+      "@state/*":             ["src/state/*"],
+      "@ui/*":                ["src/ui/*"],
+      "@components/*":        ["src/components/*"],
+      "@screens/*":           ["src/screens/*"],
+      "@router/*":            ["src/router/*"],
+      "@lib/*":               ["src/lib/*"]
     }
   },
-  "include": ["src"],
+  "include": [
+    "src",
+    "../langton-arena-backend/core/src/langton/engine.ts",
+    "../langton-arena-backend/core/src/langton/rules.ts",
+    "../langton-arena-backend/core/src/langton/prng.ts",
+    "../langton-arena-backend/core/src/contract/state.ts",
+    "../langton-arena-backend/core/src/contract/replay.ts",
+    "../langton-arena-backend/core/src/index.ts"
+  ],
+  "exclude": [
+    "../langton-arena-backend/core/src/**/*.test.ts"
+  ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

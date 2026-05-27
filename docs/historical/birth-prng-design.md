@@ -1,3 +1,13 @@
+# Backend birth.ts — pre-Stage-3 PRNG-based design (historical)
+
+Этот файл — 106-строчный pseudocode из backend/core/src/langton/birth.ts.
+Описывал NON-DETERMINISTIC алгоритм рождения через sim.rng().
+Заменён в Stage 3 на детерминированный алгоритм (max own neighbors).
+Перенесён сюда 2026-05-28 в Day 1 Stage 8 — engine workspace refactor.
+
+## Original content
+
+```typescript
 // core/src/langton/birth.ts
 //
 // Логика рождения новых муравьёв (births), гибридов (hybrids) и диких (wilds).
@@ -104,3 +114,4 @@ export function scrambleRule(_rule: string, _rng: () => number): string {
   // TODO: реализовать
   throw new Error('scrambleRule not implemented');
 }
+```

@@ -1,17 +1,29 @@
 // core/src/index.ts
 //
-// Главная точка входа пакета @langton/core.
-// Все, что нужно экспортировать наружу — реэкспорт из модулей.
+// @langton/core — shared game engine + types.
+// Используется frontend (langton-arena-web) и backend services (Stage 8+).
 //
-// Импорт у потребителя:
-//   import { stepLangton, MatchState } from '@langton/core';
+// Stage 8 Day 1: engine физически переехал сюда из frontend.
+// Frontend импортирует через workspace dependency "@langton/core".
+//
+// Дополнительные backend-only типы (MatchState, ServiceStatus, actions, events,
+// protocol, shared/constants) пока НЕ экспортируются — они для будущих сервисов
+// и не используются frontend'ом. Доступны через прямой путь:
+//   import { ... } from '@langton/core/contract/actions'
+// (или через add export здесь когда понадобятся в mvp-server).
 
-// === Игровой движок =========================================================
+// === Игровой движок (canonical source) ======================================
 export {
   makeLangtonState,
   stepLangton,
-  type SimState,
-  type Ant,
+} from './langton/engine';
+export type {
+  SimState,
+  Ant,
+  BirthConfig,
+  StepEvents,
+  MakeStateConfig,
+  Topology,
 } from './langton/engine';
 
 export {
@@ -22,61 +34,41 @@ export {
 
 export {
   mulberry32,
-  type PRNG,
 } from './langton/prng';
+export type { PRNG } from './langton/prng';
 
-// === Сетевой протокол =======================================================
-export {
-  encodeMessage,
-  decodeMessage,
-  type WsMessage,
-  type ClientToServer,
-  type ServerToClient,
-} from './protocol/messages';
-
-export {
-  validateMessage,
-} from './protocol/schema';
-
-// === Контракт интерфейса ====================================================
+// === Контракт состояния (sandbox + replay) ==================================
 export type {
   AppState,
-  ConnectionState,
-  User,
-  ServiceStatus,
-  Locale,
   ScreenId,
-  MatchState,
-  MatchPlayer,
-  LeaderboardRow,
-  LobbyState,
-  MatchmakingState,
-  ProfileState,
-  SettingsState,
+  LocaleCode,
+  User,
+  SpawnPattern,
+  Topology as ContractTopology,  // alias чтобы не дублироваться с engine.Topology
+  SandboxMode,
+  SandboxAntConfig,
+  SandboxPlayerConfig,
+  SandboxConfig,
+  SandboxRuntimeState,
+  BuiltinPreset,
+  UserPreset,
+  PlayerLiveStats,
+  SandboxLiveStats,
+  LogEvent,
+  LogEventType,
+  Highlight,
+  HighlightType,
+  WinCondition,
+  WinConditionKind,
+  MatchResult,
+  MutationConfig,
 } from './contract/state';
 
 export type {
-  AppActions,
-  ActionResult,
-} from './contract/actions';
-
-export type {
-  GameEvent,
-  MatchEvent,
-  MatchEventType,
-} from './contract/events';
-
-// === Константы и форматтеры =================================================
+  Replay,
+  ReplayMetadata,
+  DeployAction,
+} from './contract/replay';
 export {
-  PLAYER_PALETTE,
-  RULES_REGISTRY,
-  RANK_TIERS,
-  rankFromSr,
-} from './shared/constants';
-
-export {
-  formatTimer,
-  formatPercent,
-  formatLargeNumber,
-  formatRelativeTime,
-} from './shared/formatting';
+  REPLAY_FORMAT_VERSION,
+} from './contract/replay';

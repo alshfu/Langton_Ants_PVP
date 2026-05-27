@@ -1,0 +1,21 @@
+{
+  "name": "langton-arena-pvp-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Langton Arena PvP — monorepo (frontend + backend). Stage 8+ uses pnpm workspaces.",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "scripts": {
+    "build": "pnpm --filter langton-arena-web --filter @langton/core -r build",
+    "test": "pnpm --filter langton-arena-web --filter @langton/core -r --stream test",
+    "typecheck": "pnpm --filter langton-arena-web exec tsc --noEmit",
+    "test:web": "pnpm --filter langton-arena-web test",
+    "test:core": "pnpm --filter @langton/core test",
+    "audit": "pnpm --filter langton-arena-web exec node scripts/e2e-audit.mjs"
+  },
+  "comments": {
+    "scope": "Stage 8 Day 1 — services (api-gateway/ws-gateway/etc) пока без node_modules. Когда они активируются — расширить filters."
+  }
+}
