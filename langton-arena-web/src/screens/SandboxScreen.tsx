@@ -1034,21 +1034,30 @@ export function SandboxScreen() {
           {liveStats.totals.mutants > 0 && (
             <Chip color="#FFD60A" filled size="sm">🧬 {liveStats.totals.mutants} mutants</Chip>
           )}
-          {/* Stage 7.4: Media controls — Recording (REC mode) */}
-          {rt.mode === 'run' && recordedCount > 0 && (
+          {/* Stage 7.4 + 7.7: Media controls — всегда видны в run mode.
+              REC chip пульсирует красным когда есть deploys, иначе серый "ready". */}
+          {rt.mode === 'run' && (
             <MediaControlGroup>
-              <Chip color="#FF453A" filled size="sm">
-                🔴 REC · {recordedCount} deploy{recordedCount === 1 ? '' : 's'}
+              <Chip
+                color={recordedCount > 0 ? '#FF453A' : '#888'}
+                filled={recordedCount > 0}
+                size="sm"
+              >
+                {recordedCount > 0
+                  ? `🔴 REC · ${recordedCount} deploy${recordedCount === 1 ? '' : 's'}`
+                  : '⚪ REC ready'}
               </Chip>
               <MediaButton
                 onClick={quickSaveReplay}
-                title={`Save replay now (t${statsTick}, ${recordedCount} deploys)`}
-                color={T.accent}
+                title={recordedCount > 0
+                  ? `Save replay now (t${statsTick}, ${recordedCount} deploys)`
+                  : 'Make a deploy first to save a replay'}
+                color={recordedCount > 0 ? T.accent : '#666'}
               >💾 Save</MediaButton>
               <MediaButton
                 onClick={discardRecording}
-                title="Discard current recording"
-                color={T.danger}
+                title={recordedCount > 0 ? 'Discard current recording' : 'Nothing to discard'}
+                color={recordedCount > 0 ? T.danger : '#666'}
               >🗑</MediaButton>
             </MediaControlGroup>
           )}
