@@ -1234,6 +1234,545 @@ Bundle 112 КБ JS / 33 КБ gzip.
 
 ---
 
+## Неделя 14 · Этап 6 — Reserve & Deploy
+
+### День 52 — Engine + state + reserve infrastructure
+
+День начался с финального уточнения тимлида перед стартом — он
+поправил моё рассуждение про fog of war в PvP:
+
+> это не так, так как все игроки и так видят статистику других игроков
+
+Он был прав. У нас в Stats уже виден `born/alive/lost/captures/mutants`
+других игроков. Скрывать count мешка было бы непоследовательно. Финальное
+архитектурное решение: **count публичный, содержимое приватное**. Это
+даёт сигнал «у врага 15 в кармане» без раскрытия что именно (мутанты ли,
+какие правила). Стратегически интересно, для PvP правильно.
+
+Записал в ТЗ §14 как architectural decision. В Этапе 6 (только
+лаборатория) — всё видно. В Этапе 8+ (PvP) добавим разделение.
+
+**Технически День 52.** Расширил типы: `SandboxConfig.reserveMode/
+deployRule/deployRadius`, `SandboxRuntimeState.deployMode`,
+`PlayerLiveStats.reserve`, `LogEventType += 'reserve_in' | 'deploy'`.
+
+**Главное архитектурное решение** — `BirthConfig.onReserve` callback.
+Engine не знает что такое «мешок». Это абстракция уровня UI. В engine
+только:
+
+```typescript
+if (bc.reserveMode && bc.onReserve) {
+  bc.onReserve(newAnt);  // ← наружу
+} else {
+  ants.push(newAnt);
+}
+```
+
+Это даёт **чистую изоляцию** input игрока от логики симуляции. То же
+самое потребуется для server-side engine в PvP backend.
+
+`reserveRef: Map<number, Ant[]>` в SandboxScreen — повторение паттерна
+Этапа 4 (heatmap). Данные живут в ref (не state), потому что меняются
+часто. В state — только count для UI.
+
+Snapshot/restore расширены опциональным `reserveByPlayer` параметром.
+Снимок включает копию мешков. При step back — мешок восстанавливается.
+
+5 тестов в `engine-stage6.test.ts`:
+- backward compat (reserveMode=false работает как раньше)
+- callback вместо ants.push
+- events.births[].reserved=true флаг
+- newAnt в callback — валидный объект
+- **детерминизм с reserve** — два прогона дают bit-identical reserved
+
+Это пятый тест — критический. Reserve mode **не ломает** detrandomization
+Этапа 3 на уровне движка. Inputs игрока — отдельная плоскость которая
+будет записываться в timeline для replay (Этап 7).
+
+Hashes 12 пресетов **остались идентичными** после Stage 6 кода. Это
+третий раз когда я записываю это для нового этапа — после Этапа 5, после
+Этапа 4. Backward compat работает: добавляешь поле с `false` дефолтом и
+старый код не замечает.
+
+### День 53 — Deploy UI + bug fix в HeatmapLegend
+
+Утренняя часть — добавил `deployValidation.ts` с `canDeploy` функцией.
+3 правила (anywhere / own_territory / near_alive) + bounds + occupancy.
+12 unit-тестов (включая torus wrapping для near_alive). Все passed на
+первой попытке.
+
+Deploy button в TransportBar — фиолетовый акцент (`#C77DFF`) когда
+активен, disabled когда мешок пуст. Появляется только если
+`reserveMode=true`.
+
+Canvas click handler с приоритетом deploy → edit. **Главное архитектурное
+решение Дня 53**: одна функция `handleClick`, три состояния через
+приоритет:
+
+```typescript
+if (deployMode && onDeployClick) {
+  onDeployClick(cell.x, cell.y);  // ← deploy ловит первым
+  return;
+}
+if (!editMode || !onCellClick) return;
+onCellClick(...);  // ← потом edit
+```
+
+Hover-подсветка через `hoveredCell` state и overlay в `draw()`. Зелёный
+для валидных клеток, красный для невалидных. Курсор `crosshair`.
+
+**После упаковки stage6-day2.zip тимлид прислал runtime error из браузера**:
+
+```
+heatmapColors.ts:59 Uncaught TypeError:
+Cannot read properties of undefined (reading 'length')
+```
+
+Это **критический baseline** для книги — записываю подробно.
+
+**Корень**: я в Этапах 4/5/6 добавлял поля в `defaultSandbox()` (state)
+но **не** дублировал в `build-presets.mjs` (defaultConfig). Когда пресет
+грузится через `loadPreset`:
+
+```typescript
+sandbox: structuredClone(config)  // ← копирует только то что в JSON
+```
+
+`config.heatmapMode` = undefined в старых пресетах. Условие
+`cfg.heatmapMode !== 'off'` для undefined даёт **true**.
+`HeatmapLegend` монтируется. `PALETTES[undefined]` undefined.
+`undefined.length` крах.
+
+**Что обнажил баг**:
+- 82 unit-тестов **зелёные**
+- 12 smoke-пресетов **PASS**
+- 12 determinism hashes **bit-identical**
+- TypeScript strict **0 ошибок**
+
+Все системы говорят «всё хорошо». Но **в браузере** — крах. Это слепая
+зона purely-functional тестов: они проверяют что **функции** работают,
+но не что **система** работает целиком.
+
+**Fix в три слоя — defense in depth:**
+
+1. **Guard в `heatmapColor`** — leaf компонент возвращает серый при
+   unknown type + один console.warn. Защита если когда-то опять кто-то
+   передаст undefined.
+2. **`normalizeConfig` в `loadPreset`** — глубокий merge с
+   `defaultSandbox()`. Главный фикс. Также применил к `savedConfig`
+   и `userPresets[]` из localStorage.
+3. **`defaultConfig()` в `build-presets.mjs`** — теперь содержит ВСЕ
+   Stage 4-6 поля. Пере-генерировал все 12 пресетов.
+
+Один фикс решил бы проблему. Я добавил три — каждый независимая
+страховка.
+
+**Запись для книги:** «когда добавляешь поле в `SandboxConfig` — нужно
+обновить три места: `defaultSandbox()`, `defaultConfig()` в build-script,
+и проверить что loadPreset/savedConfig нормализуют его. Этот checklist
+я игнорировал. Поэтому баг копился через Stage 4, 5, и проявился только
+в Stage 6 когда количество пропущенных полей стало критическим». Это
+**смешной случай** — три этапа баг накапливался, потом сработал.
+
+Финальная упаковка `stage6-day2-fixed.zip` — браузер работает, ошибка
+исчезла. Тимлид подтвердил руками: «все работает».
+
+### День 54 — UI tab + counters + active border
+
+День построения визуальной поверхности под механику.
+
+`Reserve & Deploy` section в BirthTab. Conditional рендер:
+- Master toggle всегда виден
+- Dropdown deployRule появляется только когда reserveMode=true
+- Radius slider — только для near_alive (адаптивно)
+
+Reserve chip в top-bar — `📦 5+3+8` (per-player counts разделённые `+`).
+Появляется только если total>0. Фиолетовый цвет (`#C77DFF`), тот же что
+hybrid. Это **визуальный язык**: фиолетовый = «связь / переход / мешок».
+Золото `#FFD60A` = «достижение / мутант». Эти семантики не пересекаются.
+
+Reserve Mini block в Stats — `📦 bag: N`, conditional если reserve>0.
+
+**Active player border** на канвасе в deploy mode — рамка цвета
+активного игрока + glow shadow. Также добавил **DEPLOY MODE badge**
+(аналог EDIT MODE) с именем игрока и счётчиком в кармане.
+
+Step back recovers reserve — расширил `SnapshotHistory.capture/
+maybeCapture` чтобы принимать `reserveByPlayer`. В `onStepBack` после
+`restoreSnapshot()` дополнительно восстанавливаю `reserveRef.current`
+из `nearest.reserveCopy`. Пересчитываю reserve counters в perPlayer.
+
+Auto-exit deploy mode при `reserveMode=false` или `switchToEdit` —
+два независимых guard'а в patchSandbox и setMode. Это меньше шансов
+зависнуть в недоступном UI состоянии.
+
+### День 55 — 3 пресета + audit v3.1 + закрытие Этапа 6
+
+3 пресета через `manualAnts()` helper из Этапа 5:
+
+| Preset | Players | Rule | Field | Concept |
+|---|---|---|---|---|
+| Defense Stand | 4 | own_territory | 60×60 | копи в безопасности |
+| Surgical Strike | 2 | near_alive r=5 | 80×60 | точечные выпуски |
+| Mass Deploy | 3 | anywhere | 100×100 | волной |
+
+`smoke-test-reserve.mjs` — новый smoke-script. Проверяет что **все**
+births идут в reserve, **ни один** на поле:
+
+```
+✓ Defense Stand     births: reserved=100 on-field=0
+✓ Surgical Strike   births: reserved=40 on-field=0
+✓ Mass Deploy       births: reserved=102 on-field=0
+```
+
+Defense Stand даёт **ровный** паттерн (25 у каждого из 4 игроков) — это
+**детерминизм симметрии** в действии. 4 одинаковых рулсета + симметрия
+расстановки + детерминированный движок → одинаковый темп накопления.
+Это **визитная карточка** этапов 3+5+6 вместе.
+
+e2e-audit.mjs обновлён до **v3.1** — секция `deploy`:
+- Загружает Defense Stand
+- Проверяет 📦 chip в top-bar
+- Click Deploy button → проверяет DEPLOY MODE indicator
+- Stats tab → проверяет 📦 bag Mini block
+- Birth tab → проверяет Reserve & Deploy section
+
+15/15 smoke + 15/15 determinism + 3/3 reserve smoke. **Старые 12 hash'ей
+не менялись с Дня 51**. Stage 6 не сломал Stages 3-5.
+
+**Этап 6 закрыт.** 16/16 + 1 бонус критерии. Tests 82/82. Build 3.5с.
+Bundle 119 КБ JS / 35 КБ gzip.
+
+**Что Этап 6 дал проекту.** До этапа песочница была симулятором — setup,
+run, observe. После — **игра**. Игрок принимает решения в реальном
+времени: где и когда выпустить накопленных. Появилось **тактическое
+напряжение**: копить или выпускать сейчас? В свою территорию или к
+живым? Это первая фича где **рулсет имеет смысл только когда играешь**,
+не когда смотришь.
+
+Также Этап 6 **подготовил архитектуру для PvP**:
+- Engine изолирован от inputs (callback)
+- Snapshot включает все state
+- Detrandomization сохранён для движка
+- Только timeline of inputs (deploy events) нужно записывать для replay
+
+Это значит **Этап 7 (Sharing & Replay)** становится в основном про
+запись/воспроизведение inputs, а движок уже готов.
+
+**Технический долг (записан в backlog):**
+- Mirror condition практически не срабатывает на детерминированном
+  движке (нужно ослабить tolerance ±1 клетка в будущем)
+- При concurrent deploy clicks возможен race — нужен debounce 200ms
+- Performance не профилирован на больших полях с большими мешками
+- Audit пока без секций mutations / match (Stage 5 не покрыт e2e)
+
+---
+
+## День 56 — Закрытие Этапа 6 (формально) + наблюдение про работу с AI
+
+Технически этот день не «работа», а **формальная сверка**: пройтись по
+16 критериям приёмки Этапа 6, обновить DEVLOG, упаковать
+`stage6-complete.zip`. Всё реальное — мутации, win conditions, reserve,
+deploy — было сделано в Дни 48-55. Сегодня — закрытие.
+
+Произошёл **интересный момент** который стоит записать.
+
+В этой сессии у Claude (AI-ассистента) контекст компактифицировался —
+память сжалась в summary, и Claude **не помнил** что Дни 48-55 уже
+сделаны. Когда тимлид сказал "поехали к Дню 50" — Claude начал делать
+вид что пишет MutationsTab с нуля. Открыл файл — увидел готовый код —
+сказал «прекрасно — уже готов» как будто это сюрприз, и продолжил.
+
+Через несколько шагов Claude **сам себя поймал**: количество тестов
+было 82, а не ожидаемые 65. Что-то не сходилось. Тогда Claude
+**остановился, прочитал реальное состояние файлов**, и сказал тимлиду
+правду: «Мы не на Дне 50, мы на Дне 55. Я тебе врал последние сообщения
+не намеренно — потерял память».
+
+**Что это значит для книги.** Работа с AI-ассистентом в долгом проекте
+имеет специфический риск: ассистент не помнит между сессиями. Когда
+контекст сжимается — теряются детали. **Защита** — три уровня:
+
+1. **DEVLOG как внешняя память** — то что ты сейчас читаешь, это
+   страховочный канат. Без него Claude в новой сессии вообще не знал
+   бы что было.
+2. **Файлы в репозитории** — единственный надёжный источник правды.
+   Если AI говорит «я сделал X», а файла нет — он либо ошибается, либо
+   эта сессия была отдельная.
+3. **Тимлид-человек как арбитр** — если AI начинает делать что-то
+   что **звучит знакомо**, тимлид должен сказать «проверь сначала, ты
+   это уже делал». Это спасает от дубликации.
+
+**Что НЕ сделал Claude** и что записываю как замечание:
+- Не прочитал MutationsTab.tsx **до того** как сказать «делаю с нуля».
+  Если бы прочитал — заметил бы что код уже есть.
+- Не проверил `git log` или последние zip-файлы перед стартом.
+- Сделал вид что «всё ок» когда увидел готовый код, вместо того чтобы
+  остановиться **сразу**.
+
+Каждое из этих — **lesson learned** для будущей работы с AI. В книге
+это будет глава: «Как работать с ассистентом без долговременной памяти».
+
+**Конкретный workflow (зафиксирован после повторения ошибки в Дне 57):**
+
+Та же ошибка повторилась ещё раз — при попытке писать ТЗ Этапа 7.
+Файл `sandbox-v2-stage7-spec.md` уже существовал (573 строки, написан
+в предыдущей сессии), а Claude начал писать ТЗ с нуля. Поймал себя на
+команде `create_file` — она вернула ошибку "File already exists".
+Только эта ошибка остановила дублирование.
+
+Это значит **теоретического знания недостаточно** — даже после записи
+урока в Дне 56, Claude повторил ошибку через несколько часов. Нужен
+**конкретный workflow** который выполняется автоматически:
+
+> **Перед началом любой "новой" работы — 30 секунд на проверку:**
+> 1. `ls` директорию куда буду писать
+> 2. `grep` по теме (имя файла, ключевая концепция, "Stage N")
+> 3. Сообщить тимлиду что нашёл: «Проверил, новых файлов по теме нет»
+>    ИЛИ «Нашёл существующее X, смотрю что в нём»
+> 4. Только после этого — приступать к написанию
+>
+> "Новая работа" = создание файла, написание модуля, начало этапа,
+> ответ на "поехали" без явных артефактов в контексте.
+
+Тимлид принял этот workflow как **обязательный** с этой точки.
+Записываю его здесь чтобы при следующей компактификации контекста
+правило сохранилось.
+
+Этап 6 закрыт. 16/16 критериев. 82/82 теста. 15/15 пресетов.
+15/15 bit-deterministic. Build 2.55 сек. Bundle 118 КБ JS / 35 КБ gzip.
+
+Что **реально** даёт песочница после 6 этапов:
+
+1. **Этап 1-2** — *смотри* (setup → run → observe)
+2. **Этап 3** — *возвращайся* (step back через snapshots на
+   детерминированной симуляции)
+3. **Этап 4** — *анализируй* (events, heatmaps, highlights)
+4. **Этап 5** — *определяй цели* (mutation conditions + win conditions
+   = game design tool)
+5. **Этап 6** — *играй* (reserve + deploy = real-time inputs)
+
+Это **полноценный исследовательский инструмент** + **рулсет для
+будущего PvP**. Песочница больше не «к матчу», она **первичная** —
+тестируем интересные рулсеты тут, потом переносим в PvP.
+
+Открыт Этап 7 — Sharing & Replay. Если получится сделать timeline of
+inputs + replay engine + URL-share — open-source запуск становится
+**возможным**. Без replay community не может делиться экспериментами,
+а это половина смысла open-source клеточных автоматов.
+
+---
+
+## Неделя 14 · Этап 7 — Sharing & Replay
+
+### День 57 — Replay типы и storage
+
+Первый день нового этапа. Самый "инфраструктурный" — UI почти нет, но
+под ним фундамент для всей следующей фичи.
+
+`src/core/contract/replay.ts` — типы `DeployAction`, `ReplayMetadata`,
+`Replay`. Сразу с полем `version: 1` — намёк на будущую совместимость.
+
+`src/lib/replayStorage.ts` — save/load/list/delete через localStorage.
+Архитектурное решение: **metadata отдельно от full replay**. Список
+показывается из `langton.replays.index` (одна строка, все metadata),
+а полный replay грузится из `langton.replay.<id>` только когда нужно
+играть. Это оптимизация: метаданные читаются часто (рендер списка),
+full payload — редко (только play).
+
+FIFO eviction — самый старый удаляется когда лимит 30 достигнут.
+
+`replayDeploysRef` в SandboxScreen накапливает все deploy actions в Run
+mode. `replayStartConfigRef` хранит snapshot конфига на момент `switchToRun`
+— потому что пользователь может **поменять** конфиг после старта, а replay
+должен помнить **с чего игра началась**.
+
+10 unit-тестов на storage. Они поймали **тихий bug**: я написал
+`localStorage.setItem(PREFIX + replay.id, ...)` — но в типах нет верхнего
+поля `id`, только в `metadata.id`. TypeScript не поймал (`replay.id` это
+`unknown` → string concat OK). Тест поймал — load вернул null после save.
+
+Записываю это: **TypeScript ловит 95% но не 100%.** Storage layer
+обязан иметь unit-тесты — иначе тихие баги доходят до прода.
+
+### День 58 — Replay playback
+
+Самый "красивый" день этапа. После Дня 57 у нас замороженный formula:
+**Replay = (config, timeline of inputs).** Чтобы воспроизвести —
+**загружаем config + повторяем inputs в те же тики**. Всё. Никакого
+"replay engine".
+
+Это работает **только потому что** Этапы 1-6 были про детерминизм.
+Если бы движок имел `Math.random()` — replay показал бы разные
+результаты на разных машинах. Сейчас — bit-identical.
+
+Технически:
+- `SandboxMode += 'playback'` (третий режим наряду с edit/run)
+- `activeReplayId` / `activeReplayName` в SandboxRuntimeState
+- `startPlayback` / `stopPlayback` actions
+- `playbackInputsByTickRef: Map<number, DeployAction[]>` — pre-index
+  inputs по тикам для O(1) lookup в onTick
+- `replayPlaybackDeploy` функция — упрощённый deploy без валидации
+  (replay по построению валидный) и без toast
+- В onTick: если `mode === 'playback'` — для каждого input в текущем
+  тике вызываем `replayPlaybackDeploy`
+
+UI: **золотая рамка** вокруг канваса в playback mode + `🎬 chip` в
+top-bar с именем replay + кнопка `✕ Stop` рядом. Замечу: золото — это
+наш "язык признания" в проекте. Мутанты золотые. Победитель в banner —
+золотая рамка. Replay — золотая рамка. Это **визуальная грамматика**
+которая накапливается без специального обсуждения.
+
+`ReplaysTab.tsx` с current session секцией (REC indicator + Save) и
+списком saved replays с Play/Delete. Дизайн карточки — knock-off
+карточек YouTube (thumbnail + title + meta).
+
+9 unit-тестов на pre-indexing inputs. Один из тестов — *"порядок
+inputs в одном тике сохраняется (FIFO)"* — критичен для детерминизма.
+Если два игрока сделали deploy в один и тот же тик, важен **порядок**
+их применения. Map preserves insertion order — это часть JS spec
+начиная с ES2015.
+
+### День 59 — URL share + JSON export/import
+
+Установка `lz-string` — единственная новая зависимость во всём
+проекте (кроме React/Vite). 1 КБ runtime. Альтернативы: pako (zlib,
+лучше сжимает но не URL-safe), brotli (отлично но не нативный в
+браузерах), без compression (тогда URL для replays 5000 тиков —
+~50K chars, лимит Chrome 32K).
+
+`src/lib/urlShare.ts` — encode/decode preset+replay. Структура:
+```
+{ kind: 'preset' | 'replay', version: 1, data: {...} }
+```
+
+**Два уровня версионирования**: `URL_FORMAT_VERSION` (обёртка) и
+`REPLAY_FORMAT_VERSION` (структура). Можно поменять compression не
+трогая replay format. Или наоборот — расширить Replay не трогая URL.
+**Дешёвая инвестиция** — два числа в коде, гибкость на будущее.
+
+`downloadJson` — простой trick через Blob + ObjectURL + clickHandler.
+Работает во всех браузерах включая Safari. Освобождаем ObjectURL через
+setTimeout 100ms — иначе некоторые браузеры теряют link.
+
+URL parser в **Router** — useEffect с handledRef для гарантии
+однократного выполнения. При наличии `?p=` или `?r=` — загружает,
+переходит в sandbox, **чистит URL** через history.replaceState (чтобы
+при F5 не загружать снова). Если URL невалидный — `console.warn` без
+крашa.
+
+14 unit-тестов. Особый тест: **replay с 1000 deploys помещается в
+URL** (< 32K chars) — это даёт нам комфортный запас для community
+sharing.
+
+Bundle вырос с 126 КБ до 132 КБ (+lz-string). Бюджет 130 КБ gzipped —
+**пройден с большим запасом**: 39 КБ gzip.
+
+### День 60 — Финал Этапа 7 + закрытие песочницы
+
+3 demo replays в `public/replays/`:
+- **Defense Stand · careful builder** — копи до t=400, потом залп
+- **Surgical Strike · precision drops** — точечные выпуски на радиус
+- **Mass Deploy · wave attack** — волна из 10 муравьёв за 10 тиков
+
+Эти replays — **primer для community**. Когда придёт первый PR от
+незнакомого человека (надеюсь скоро), он сможет открыть demo, посмотреть
+"как играть с deploy", и понять что от него ожидается.
+
+`scripts/build-demo-replays.mjs` генерирует их из пресетов. Я
+**намеренно** сделал в виде build script а не вручную написал JSON —
+это та же дисциплина что с пресетами в Stage 5/6 (build-presets.mjs).
+Когда добавим больше demo — будет одно место для редактирования.
+
+`scripts/smoke-test-replays.mjs` проверяет каждый replay по 5
+критериям: валидный JSON, правильная version, playerIdx в пределах
+config.players, координаты в пределах поля, **inputs отсортированы**
+по тику. Поймал **bug в build-script**: я писал deploys чередованием
+двух игроков, smoke test обнаружил что они не в порядке тиков. Поправил
+— сортируем в build (real recording всегда отсортирован).
+
+e2e-audit.mjs обновлён до **v3.2** — секция `replay`:
+- Replays tab появляется в TabStrip
+- Saved replays / Current session sections видны
+- Export/Share section в ReplaysTab
+- Export/Import/Share section в PresetsTab
+- Download .json, Copy share URL, Import .json buttons
+
+**Этап 7 закрыт.** 16/16 критериев. 115/115 тестов. 15/15 пресетов
++ 3/3 demo replays. Bundle 132 КБ JS / 39 КБ gzip. Build 3.6с.
+
+---
+
+## Песочница закрыта · что мы построили за 60 дней
+
+После 7 этапов у нас:
+
+1. **Этап 1-2** — *смотри* — setup, run, observe
+2. **Этап 3** — *возвращайся* — step back, snapshots, **детерминизм**
+3. **Этап 4** — *анализируй* — events, heatmaps, highlights
+4. **Этап 5** — *определяй цели* — mutations + win conditions
+5. **Этап 6** — *играй* — reserve + deploy (real-time inputs)
+6. **Этап 7** — *делись* — save, replay, URL share, JSON export
+
+**По числам:**
+- 120 файлов в web-клиенте
+- 115 unit-тестов
+- 15 пресетов + 3 demo replays
+- 132 КБ JS bundle / 39 КБ gzipped
+- 0 TypeScript ошибок в strict mode
+- 15/15 пресетов bit-deterministic
+- Build < 4 секунды
+- e2e-audit v3.2 покрывает Stages 1-7
+
+**По влиянию:**
+- Песочница — не "к матчу", а **первичный** инструмент
+- Detrandomization — не "ой так удобно", а **архитектурное** решение
+  которое сделало Replay простой фичей в Этапе 7
+- Open-source готов: replays можно делиться, community может
+  экспериментировать, баги воспроизводимы
+
+**Что дальше:**
+- **GitHub release v0.1** — publish, README, demo replays embedded,
+  bug report template
+- **Phase 0 backend** — staging стейджинг, Postgres+Redis+R2 setup
+- **Phase 1 backend** — WS Gateway + matchmaker + первый матч между
+  двумя браузерами
+- **Этапы 8+** — это **уже не sandbox** а matchmaking/lobby/match
+  screens
+
+---
+
+## Архитектурные решения Этапа 7 для книги
+
+1. **Replay = inputs, не states.** Маленький размер (~2-12K chars в
+   URL), self-validating: если replay не воспроизводится bit-identical
+   — баг в детерминизме. Это **доказательство** что 4 этапа работы над
+   детерминизмом дали ровно тот результат который нужен.
+
+2. **Metadata отдельно от full replay в storage.** Метаданные читаются
+   часто (рендер списка), full payload — редко (только play). Это
+   классический паттерн "index + body" для key-value storage.
+
+3. **Два уровня версионирования** — URL_FORMAT_VERSION (обёртка) и
+   REPLAY_FORMAT_VERSION (структура). Дешёвая инвестиция, большая
+   гибкость на будущее.
+
+4. **Recording always-on** — UX решение. Пользователь не должен помнить
+   "ой, надо было записать". Любая интересная сессия — уже в буфере.
+   Save — это commit в localStorage, recording бесплатный.
+
+5. **Replay использует тот же engine.** Намеренно не "replay engine".
+   `replayPlaybackDeploy` делает тот же `bag.shift() → ants.push` что
+   обычный deploy, но автоматически в нужный тик. Engine не знает про
+   playback. Это значит: любой баг детерминизма автоматически проявится
+   как "replay не воспроизводится" — встроенный self-check.
+
+6. **lz-string выбран не за compression** (она средняя), а за
+   **URL-safe base64**. Альтернативы дают лучше compression но
+   требуют extra encoding в URL.
+
+---
+
 
 ## Благодарности
 
@@ -1283,7 +1822,9 @@ Bundle 112 КБ JS / 33 КБ gzip.
 - Сделать первый реальный матч между двумя браузерами
 - Релиз на itch.io / r/cellular_automata / Hacker News
 - Дождаться первого PR от незнакомого человека
-- Понять как именно работают мутации в Mutation Lab — это **открытый вопрос**, никто не знает, выясним в Этапе 4
+- Сделать Этап 7 (Sharing & Replay): timeline of inputs + replay engine + URL-share
+
+*Запись от Дня 47 ("Понять как работают мутации — это открытый вопрос, выясним в Этапе 4") сохранена в истории файла. Ответ: мутации работают через 3 детерминированных условия (Halo / Mirror / Path), реализованы в Этапе 5 Дни 48-51. Halo доминирует в большинстве пресетов, Mirror практически не срабатывает (technical debt записан). Эту запись оставляю как **пример как меняются «открытые вопросы»** по мере работы над проектом.*
 
 ---
 

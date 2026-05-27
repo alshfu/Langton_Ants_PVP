@@ -145,6 +145,13 @@ export function StatsTab({ onJumpTo }: StatsTabProps = {}) {
                     color="#FFD60A"
                   />
                 )}
+                {ps.reserve > 0 && (
+                  <Mini
+                    label="📦 bag"
+                    value={ps.reserve.toString()}
+                    color="#C77DFF"
+                  />
+                )}
               </div>
             </PlayerCard>
           );

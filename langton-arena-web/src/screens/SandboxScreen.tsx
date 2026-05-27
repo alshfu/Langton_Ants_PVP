@@ -32,7 +32,8 @@ import { Eyebrow } from '@ui/Eyebrow';
 import { Chip } from '@ui/Chip';
 
 import type { Ant, BirthConfig, SimState, StepEvents } from '@core/langton/engine';
-import type { SandboxLiveStats, PlayerLiveStats, LogEvent } from '@core/contract/state';
+import type { SandboxLiveStats, PlayerLiveStats, LogEvent, SandboxConfig } from '@core/contract/state';
+import type { DeployAction } from '@core/contract/replay';
 import { TabStrip, type SandboxTabId } from './sandbox/TabStrip';
 import { PlayersTab } from './sandbox/PlayersTab';
 import { AntsTab } from './sandbox/AntsTab';
@@ -41,6 +42,7 @@ import { CombatTab } from './sandbox/CombatTab';
 import { BirthTab } from './sandbox/BirthTab';
 import { VisualTab } from './sandbox/VisualTab';
 import { PresetsTab } from './sandbox/PresetsTab';
+import { ReplaysTab } from './sandbox/ReplaysTab';
 import { StatsTab } from './sandbox/StatsTab';
 import { EventsTab } from './sandbox/EventsTab';
 import { MutationsTab } from './sandbox/MutationsTab';
@@ -120,6 +122,15 @@ export function SandboxScreen() {
   const firstDeathRef = useRef<LogEvent | null>(null); // кэшируем для highlight
   // Stage 6: мешки муравьёв (key = playerIdx)
   const reserveRef = useRef<Map<number, Ant[]>>(new Map());
+
+  // Stage 7: запись deploy actions в текущей сессии (для replay).
+  // Always-on в Run mode, очищается при switchToRun / switchToEdit.
+  const replayDeploysRef = useRef<DeployAction[]>([]);
+  // Конфиг на момент старта Run mode — чтобы при сохранении replay
+  // знать с какого setup'а игра началась (а не с изменённого "на ходу").
+  const replayStartConfigRef = useRef<SandboxConfig | null>(null);
+  // Stage 7: playback — pre-indexed inputs по тикам для O(1) lookup в onTick.
+  const playbackInputsByTickRef = useRef<Map<number, DeployAction[]>>(new Map());
 
   // Инициализация счётчиков при изменении списка игроков
   useEffect(() => {
@@ -287,12 +298,15 @@ export function SandboxScreen() {
     // Сохраняем initial snapshot (tick=0) чтобы можно было откатиться к началу
     const sim = fieldRef.current?.getSim();
     if (sim && snapshotsRef.current && sim.tick === 0) {
-      snapshotsRef.current.capture(sim);
+      snapshotsRef.current.capture(sim, reserveRef.current);
       setCanStepBack(true);
     }
+    // Stage 7: reset replay recording + snapshot стартового конфига
+    replayDeploysRef.current = [];
+    replayStartConfigRef.current = structuredClone(cfg);
     sx.setMode('run');
     sx.setPaused(false);
-  }, [validateBeforeRun, sx, showToast]);
+  }, [validateBeforeRun, sx, showToast, cfg]);
 
   const switchToEdit = useCallback(() => {
     if (statsTick > 0) {
@@ -352,7 +366,7 @@ export function SandboxScreen() {
     // Сохраняем snapshot ПЕРЕД шагом — чтобы можно было откатиться
     const sim = fieldRef.current?.getSim();
     if (sim && snapshotsRef.current) {
-      snapshotsRef.current.capture(sim);
+      snapshotsRef.current.capture(sim, reserveRef.current);
       setCanStepBack(snapshotsRef.current.hasAny);
     }
     setStepSignal((prev) => prev + n);
@@ -373,6 +387,21 @@ export function SandboxScreen() {
     }
     fieldRef.current?.restoreSnapshot(nearest);
     const toCatchUp = targetTick - nearest.tick;
+
+    // Stage 6: восстанавливаем reserve из snapshot
+    if (nearest.reserveCopy) {
+      reserveRef.current.clear();
+      nearest.reserveCopy.forEach((ants, k) => {
+        reserveRef.current.set(k, ants.map((a) => ({ ...a })));
+      });
+      // Также пересчитываем reserve counters per-player
+      cfg.players.forEach((p, pi) => {
+        const stats = counters.current.perPlayer.get(p.id);
+        if (stats) {
+          stats.reserve = reserveRef.current.get(pi)?.length ?? 0;
+        }
+      });
+    }
 
     // Обрезаем events и territoryHistory до nearest.tick
     eventsRef.current = eventsRef.current.filter((e) => e.tick <= nearest.tick);
@@ -539,10 +568,57 @@ export function SandboxScreen() {
     }
   }, [cfg.players]);
 
+  // Stage 7: воспроизведение одного deploy action в режиме playback.
+  // Отличие от onDeployClick: не валидирует (replay уже валидный по построению),
+  // не показывает toast, использует playerIdx из action а не активного игрока.
+  const replayPlaybackDeploy = useCallback((action: DeployAction, sim: SimState) => {
+    const bag = reserveRef.current.get(action.playerIdx);
+    if (!bag || bag.length === 0) {
+      console.warn('[replay] no ants in reserve at tick', sim.tick, 'for player', action.playerIdx);
+      return;
+    }
+    const ant = bag.shift()!;
+    ant.x = action.x;
+    ant.y = action.y;
+    ant.lastDamageTick = sim.tick - 9999;
+    sim.ants.push(ant);
+
+    // Log event
+    const ev: LogEvent = {
+      id: ++eventIdCounter.current,
+      tick: sim.tick, type: 'deploy',
+      x: action.x, y: action.y, ownerIdx: action.playerIdx,
+    };
+    eventsRef.current.push(ev);
+    if (eventsRef.current.length > 500) eventsRef.current.shift();
+
+    // Декремент reserve counter
+    const p = cfg.players[action.playerIdx];
+    if (p) {
+      const stats = counters.current.perPlayer.get(p.id);
+      if (stats) stats.reserve = Math.max(0, stats.reserve - 1);
+    }
+  }, [cfg.players]);
+
   const onTick = useCallback((sim: SimState) => {
+    // Stage 7: в playback mode re-apply все inputs для этого тика
+    if (rt.mode === 'playback') {
+      const inputs = playbackInputsByTickRef.current.get(sim.tick);
+      if (inputs && inputs.length > 0) {
+        for (const action of inputs) {
+          // Используем onDeployClick через прямой вызов (он же читает activePlayerId)
+          // Но в playback playerIdx из action.playerIdx, не из rt
+          // Имитируем deploy: bag.shift() + ant push на координаты
+          replayPlaybackDeploy(action, sim);
+        }
+      }
+      // Проверка конца playback — все inputs прошли + текущий тик >= finalTick
+      // Здесь без авто-stop, пользователь сам нажмёт Exit
+    }
+
     // Snapshot для step back каждые 50 тиков
     if (snapshotsRef.current) {
-      snapshotsRef.current.maybeCapture(sim);
+      snapshotsRef.current.maybeCapture(sim, reserveRef.current);
       if (snapshotsRef.current.hasAny) setCanStepBack(true);
     }
 
@@ -616,7 +692,7 @@ export function SandboxScreen() {
         }),
       };
     });
-  }, [cfg.players, cfg.winCondition]);
+  }, [cfg.players, cfg.winCondition, rt.mode, replayPlaybackDeploy]);
 
   const onJumpToTick = useCallback((targetTick: number) => {
     const sim = fieldRef.current?.getSim();
@@ -676,6 +752,9 @@ export function SandboxScreen() {
       if (stats) stats.reserve = Math.max(0, stats.reserve - 1);
     }
 
+    // Stage 7: запись в replay timeline
+    replayDeploysRef.current.push({ tick, playerIdx, x, y });
+
     showToast(`Deployed at (${x}, ${y})`, 'info');
   }, [cfg.players, cfg.deployRule, cfg.deployRadius, rt.activePlayerId, showToast]);
 
@@ -691,6 +770,26 @@ export function SandboxScreen() {
     return v.ok;
   }, [cfg.players, cfg.deployRule, cfg.deployRadius, rt.activePlayerId]);
 
+  // Stage 7: запуск playback с заданным replay.
+  // 1. loadPreset(replay.config) — восстанавливаем начальный setup
+  // 2. startPlayback action — переключает в режим 'playback'
+  // 3. pre-index inputs по тикам
+  // 4. В onTick проверяем и re-apply каждый deploy
+  const startReplayPlayback = useCallback((replay: import('@core/contract/replay').Replay) => {
+    // Pre-index inputs by tick для O(1) lookup
+    const byTick = new Map<number, DeployAction[]>();
+    for (const action of replay.deployTimeline) {
+      const arr = byTick.get(action.tick);
+      if (arr) arr.push(action);
+      else byTick.set(action.tick, [action]);
+    }
+    playbackInputsByTickRef.current = byTick;
+    // Загружаем начальный config + запускаем playback mode
+    sx.loadPreset(replay.config);
+    // setTimeout — потому что loadPreset переустанавливает state asynchronously
+    setTimeout(() => sx.startPlayback(replay.metadata.id, replay.metadata.name), 50);
+  }, [sx]);
+
   const renderTab = () => {
     switch (activeTab) {
       case 'players': return <PlayersTab />;
@@ -703,6 +802,17 @@ export function SandboxScreen() {
       case 'mutations': return <MutationsTab />;
       case 'visual':  return <VisualTab />;
       case 'presets': return <PresetsTab />;
+      case 'replays': return (
+        <ReplaysTab
+          getCurrentSession={() => ({
+            deploys: replayDeploysRef.current,
+            startConfig: replayStartConfigRef.current,
+            currentTick: statsTick,
+          })}
+          onPlay={startReplayPlayback}
+          onSaveSuccess={(id) => showToast(`Saved replay (${id.slice(0, 12)}…)`, 'info')}
+        />
+      );
     }
   };
 
@@ -776,7 +886,7 @@ export function SandboxScreen() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <Chip color={rt.paused && rt.mode === 'run' ? T.warning : rt.mode === 'edit' ? T.warning : T.success} filled size="sm">
-            {rt.mode === 'edit' ? 'editing' : (rt.paused ? 'paused' : 'live')}
+            {rt.mode === 'edit' ? 'editing' : rt.mode === 'playback' ? 'replay' : (rt.paused ? 'paused' : 'live')}
           </Chip>
           <Chip color={T.info} size="sm">tick {statsTick.toLocaleString()}</Chip>
           <Chip color={T.accent} size="sm">{effectiveTps} TPS</Chip>
@@ -787,6 +897,40 @@ export function SandboxScreen() {
           {liveStats.totals.mutants > 0 && (
             <Chip color="#FFD60A" filled size="sm">🧬 {liveStats.totals.mutants} mutants</Chip>
           )}
+          {/* Stage 7: playback chip + stop button */}
+          {rt.mode === 'playback' && rt.activeReplayName && (
+            <>
+              <Chip color="#FFD60A" filled size="sm">
+                🎬 {rt.activeReplayName.length > 40 ? rt.activeReplayName.slice(0, 40) + '…' : rt.activeReplayName}
+              </Chip>
+              <button
+                onClick={() => sx.stopPlayback()}
+                style={{
+                  padding: '3px 10px',
+                  background: 'transparent',
+                  color: T.danger,
+                  border: `1px solid ${T.danger}`,
+                  borderRadius: T.radiusSm,
+                  fontFamily: 'JetBrains Mono, monospace',
+                  fontSize: 10, fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                ✕ Stop
+              </button>
+            </>
+          )}
+          {/* Stage 6: reserve chip — показывается если хоть у кого-то есть в мешке */}
+          {(() => {
+            const counts = cfg.players.map((p) => liveStats.perPlayer[p.id]?.reserve ?? 0);
+            const total = counts.reduce((s, n) => s + n, 0);
+            if (total === 0) return null;
+            return (
+              <Chip color="#C77DFF" filled size="sm">
+                📦 {counts.join('+')}
+              </Chip>
+            );
+          })()}
         </div>
       </div>
 
@@ -800,11 +944,25 @@ export function SandboxScreen() {
           position: 'relative',
         }}>
           <div style={{
-            border: rt.mode === 'edit' ? `2px solid ${T.warning}` : '2px solid transparent',
+            border: (() => {
+              if (rt.mode === 'playback') return '2px solid #FFD60A';  // Stage 7: golden
+              if (rt.deployMode) {
+                const activePlayer = cfg.players.find((p) => p.id === rt.activePlayerId);
+                const color = activePlayer?.color ?? '#C77DFF';
+                return `2px solid ${color}`;
+              }
+              if (rt.mode === 'edit') return `2px solid ${T.warning}`;
+              return '2px solid transparent';
+            })(),
             borderRadius: T.radiusSm,
             padding: 2,
             transition: 'border-color .15s',
             position: 'relative',
+            boxShadow: rt.mode === 'playback'
+              ? '0 0 24px #FFD60A55'                                    // Stage 7
+              : rt.deployMode
+              ? `0 0 20px ${(cfg.players.find((p) => p.id === rt.activePlayerId)?.color ?? '#C77DFF')}55`
+              : 'none',
           }}>
             <LangtonField
               ref={fieldRef}
@@ -859,6 +1017,30 @@ export function SandboxScreen() {
                 EDIT MODE · click to add · shift+click to remove · wheel/RMB to rotate
               </div>
             )}
+            {rt.deployMode && (() => {
+              const activePlayer = cfg.players.find((p) => p.id === rt.activePlayerId);
+              const color = activePlayer?.color ?? '#C77DFF';
+              const reserveCount = (() => {
+                if (!rt.activePlayerId) return 0;
+                const idx = cfg.players.findIndex((p) => p.id === rt.activePlayerId);
+                if (idx < 0) return 0;
+                return reserveRef.current.get(idx)?.length ?? 0;
+              })();
+              return (
+                <div style={{
+                  position: 'absolute', top: 6, left: 8,
+                  padding: '4px 10px',
+                  background: color, color: '#000',
+                  fontSize: 10, fontWeight: 700,
+                  letterSpacing: 1, textTransform: 'uppercase',
+                  borderRadius: 3,
+                  fontFamily: 'JetBrains Mono, monospace',
+                  pointerEvents: 'none',
+                }}>
+                  📦 DEPLOY MODE · {activePlayer?.name ?? '?'} · {reserveCount} in bag · click to release
+                </div>
+              );
+            })()}
             {cfg.heatmapMode !== 'off' && (() => {
               const hm = heatmapRef.current;
               const maxV =

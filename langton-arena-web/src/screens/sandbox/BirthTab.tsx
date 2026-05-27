@@ -4,7 +4,7 @@ import { useAppState } from '@state/AppStateProvider';
 import { useTheme } from '@theme/ThemeProvider';
 import { Slider } from '@ui/Slider';
 import { Toggle } from '@ui/Toggle';
-import { Section, Field } from './_shared';
+import { Section, Field, Select } from './_shared';
 
 export function BirthTab() {
   const { tokens: T } = useTheme();
@@ -73,6 +73,50 @@ export function BirthTab() {
             onChange={(v) => sx.patchSandbox({ wildBirthChance: v })}
           />
         </Field>
+      </Section>
+
+      <Section title="Reserve & Deploy">
+        <Toggle
+          on={cfg.reserveMode}
+          onChange={(v) => sx.patchSandbox({ reserveMode: v })}
+          label={cfg.reserveMode
+            ? 'Reserve mode ON — births go to bag'
+            : 'Reserve mode OFF — births appear on field'}
+        />
+        <div style={{
+          marginTop: 4, fontSize: 10,
+          color: T.textMuted,
+          fontFamily: 'JetBrains Mono, monospace',
+          lineHeight: 1.4,
+        }}>
+          When ON: newborns accumulate in player's bag. Use 📦 Deploy button
+          in transport bar to release them onto field one at a time.
+        </div>
+
+        {cfg.reserveMode && (
+          <>
+            <Field label="Deploy rule">
+              <Select
+                value={cfg.deployRule}
+                onChange={(v) => sx.patchSandbox({ deployRule: v as 'anywhere' | 'own_territory' | 'near_alive' })}
+                options={[
+                  { value: 'anywhere',       label: 'Anywhere — any empty cell' },
+                  { value: 'own_territory',  label: 'Own territory — only colored by me' },
+                  { value: 'near_alive',     label: 'Near alive — radius N from my ants' },
+                ]}
+              />
+            </Field>
+
+            {cfg.deployRule === 'near_alive' && (
+              <Field label="Deploy radius" hint={`${cfg.deployRadius}`}>
+                <Slider
+                  value={cfg.deployRadius} min={1} max={10} step={1}
+                  onChange={(v) => sx.patchSandbox({ deployRadius: Math.round(v) })}
+                />
+              </Field>
+            )}
+          </>
+        )}
       </Section>
     </div>
   );

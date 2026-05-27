@@ -104,6 +104,8 @@ export function defaultRuntimeState(activePlayerId: string | null): SandboxRunti
     activePlayerId,
     selectedAntId: null,
     deployMode: false,         // Stage 6
+    activeReplayId: null,      // Stage 7
+    activeReplayName: null,    // Stage 7
     liveStats: {
       tick: 0,
       perPlayer: {},

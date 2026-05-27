@@ -21,7 +21,7 @@ export interface User {
 
 export type SpawnPattern = 'radial' | 'corner' | 'random' | 'cluster' | 'center' | 'manual';
 export type Topology = 'torus' | 'wall' | 'bounce' | 'void';
-export type SandboxMode = 'edit' | 'run';
+export type SandboxMode = 'edit' | 'run' | 'playback';
 
 /** Один муравей в конфигурации (статика — до запуска или в Edit). */
 export interface SandboxAntConfig {
@@ -240,6 +240,10 @@ export interface SandboxRuntimeState {
   liveStats: SandboxLiveStats;
   /** Stage 6: активен ли deploy-режим (курсор crosshair, hover-подсветка). */
   deployMode: boolean;
+  /** Stage 7: ID воспроизводимого replay в режиме playback. */
+  activeReplayId: string | null;
+  /** Stage 7: имя для UI top-bar и оверлеев. */
+  activeReplayName: string | null;
 }
 
 // ─── User preset (в localStorage) ────────────────────────────────────────────

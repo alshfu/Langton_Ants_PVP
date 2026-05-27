@@ -48,6 +48,18 @@
     {
       "id": "chaos-vs-order",
       "file": "chaos-vs-order.json"
+    },
+    {
+      "id": "defense-stand",
+      "file": "defense-stand.json"
+    },
+    {
+      "id": "surgical-strike",
+      "file": "surgical-strike.json"
+    },
+    {
+      "id": "mass-deploy",
+      "file": "mass-deploy.json"
     }
   ]
 }

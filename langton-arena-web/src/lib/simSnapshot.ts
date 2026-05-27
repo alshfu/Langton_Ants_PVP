@@ -81,15 +81,15 @@ export class SnapshotHistory {
   }
 
   /** Вызывается на каждом тике. Сохраняет snapshot когда tick % interval === 0. */
-  maybeCapture(sim: SimState): void {
+  maybeCapture(sim: SimState, reserveByPlayer?: Map<number, Ant[]>): void {
     if (sim.tick % this.intervalTicks !== 0) return;
-    this.items.push(snapshot(sim));
+    this.items.push(snapshot(sim, reserveByPlayer));
     while (this.items.length > this.maxSnapshots) this.items.shift();
   }
 
   /** Принудительно сохранить (например, в начале симуляции при tick=0). */
-  capture(sim: SimState): void {
-    this.items.push(snapshot(sim));
+  capture(sim: SimState, reserveByPlayer?: Map<number, Ant[]>): void {
+    this.items.push(snapshot(sim, reserveByPlayer));
     while (this.items.length > this.maxSnapshots) this.items.shift();
   }
 

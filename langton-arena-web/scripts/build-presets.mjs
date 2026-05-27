@@ -550,6 +550,76 @@ const PRESETS = [
       ],
     })),
   },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  STAGE 6 PRESETS — Reserve & Deploy
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  {
+    id: 'defense-stand',
+    name: 'Defense Stand',
+    category: 'builtin',
+    description: '4 corners, build reserve in own territory then defend',
+    tags: ['stage6', 'reserve', 'defense', '4p'],
+    author: 'langton-arena',
+    config: populateAnts(defaultConfig({
+      width: 60, height: 60, seed: 6001,
+      birthEnabled: true, birthMinNeighbors: 2, birthCooldownTicks: 20,
+      maxAntsPerPlayer: 30, hybridChance: 0.10, wildBirthChance: 0,
+      reserveMode: true,
+      deployRule: 'own_territory',
+      deployRadius: 3,
+      players: [
+        makePlayer(0, { color: '#FF5470', ruleId: 'spiral',  antCount: 3, spawnPattern: 'corner' }),
+        makePlayer(1, { color: '#4DA8FF', ruleId: 'spiral',  antCount: 3, spawnPattern: 'corner' }),
+        makePlayer(2, { color: '#39D98A', ruleId: 'spiral',  antCount: 3, spawnPattern: 'corner' }),
+        makePlayer(3, { color: '#FFD60A', ruleId: 'spiral',  antCount: 3, spawnPattern: 'corner' }),
+      ],
+    })),
+  },
+
+  {
+    id: 'surgical-strike',
+    name: 'Surgical Strike',
+    category: 'builtin',
+    description: '2 players, deploy near alive ants — precise tactical placement',
+    tags: ['stage6', 'reserve', 'tactical', '2p'],
+    author: 'langton-arena',
+    config: populateAnts(defaultConfig({
+      width: 80, height: 60, seed: 6002,
+      birthEnabled: true, birthMinNeighbors: 2, birthCooldownTicks: 25,
+      maxAntsPerPlayer: 20, hybridChance: 0.10, wildBirthChance: 0,
+      reserveMode: true,
+      deployRule: 'near_alive',
+      deployRadius: 5,
+      players: [
+        makePlayer(0, { color: '#FF5470', ruleId: 'flower',  antCount: 3, spawnPattern: 'radial' }),
+        makePlayer(1, { color: '#4DA8FF', ruleId: 'flower',  antCount: 3, spawnPattern: 'radial' }),
+      ],
+    })),
+  },
+
+  {
+    id: 'mass-deploy',
+    name: 'Mass Deploy',
+    category: 'builtin',
+    description: '3 players, anywhere deploy — accumulate big, release in waves',
+    tags: ['stage6', 'reserve', 'mass', '3p'],
+    author: 'langton-arena',
+    config: populateAnts(defaultConfig({
+      width: 100, height: 100, seed: 6003,
+      birthEnabled: true, birthMinNeighbors: 2, birthCooldownTicks: 15,
+      maxAntsPerPlayer: 50, hybridChance: 0.15, wildBirthChance: 0.05,
+      reserveMode: true,
+      deployRule: 'anywhere',
+      deployRadius: 3,
+      players: [
+        makePlayer(0, { color: '#FF5470', ruleId: 'classic',  antCount: 2, spawnPattern: 'cluster' }),
+        makePlayer(1, { color: '#4DA8FF', ruleId: 'spiral',   antCount: 2, spawnPattern: 'cluster' }),
+        makePlayer(2, { color: '#39D98A', ruleId: 'tornado',  antCount: 2, spawnPattern: 'cluster' }),
+      ],
+    })),
+  },
 ];
 
 // ─── Write files ─────────────────────────────────────────────────────────────

@@ -5,7 +5,7 @@
 
 import { useTheme } from '@theme/ThemeProvider';
 
-export type SandboxTabId = 'players' | 'ants' | 'stats' | 'events' | 'field' | 'combat' | 'birth' | 'mutations' | 'visual' | 'presets';
+export type SandboxTabId = 'players' | 'ants' | 'stats' | 'events' | 'field' | 'combat' | 'birth' | 'mutations' | 'visual' | 'presets' | 'replays';
 
 interface TabDef {
   id: SandboxTabId;
@@ -25,6 +25,7 @@ const TABS: TabDef[] = [
   { id: 'mutations', icon: '🧬', label: 'Mutations', description: 'Mutation conditions + win conditions' },
   { id: 'visual',    icon: '✨', label: 'Visual',    description: 'Glow, trails, ant scale, skins, heatmap' },
   { id: 'presets',   icon: '★',  label: 'Presets',   description: 'Load and save scenarios' },
+  { id: 'replays',   icon: '🎬', label: 'Replays',   description: 'Record, save, play back, share sessions' },
 ];
 
 export function TabStrip({

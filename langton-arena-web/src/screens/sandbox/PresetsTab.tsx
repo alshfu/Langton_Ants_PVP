@@ -202,6 +202,114 @@ export function PresetsTab() {
           ))
         )}
       </Section>
+
+      <Section title="Export / Import / Share">
+        <ExportImportSection onToast={showToast} />
+      </Section>
     </div>
   );
+}
+
+// ─── Stage 7: Export / Import / Share ────────────────────────────────────────
+
+interface ExportImportProps {
+  onToast: (msg: string) => void;
+}
+
+function ExportImportSection({ onToast }: ExportImportProps) {
+  const { tokens: T } = useTheme();
+  const { state, sandbox: sx } = useAppState();
+
+  const handleDownload = async () => {
+    const { downloadJson } = await import('@lib/urlShare');
+    const cfg = state.sandbox;
+    const name = `preset-${Date.now()}.json`;
+    downloadJson(name, cfg);
+    onToast(`Downloaded ${name}`);
+  };
+
+  const handleCopyUrl = async () => {
+    const { encodePresetForUrl, buildShareUrl } = await import('@lib/urlShare');
+    const cfg = state.sandbox;
+    const encoded = encodePresetForUrl(cfg);
+    const url = buildShareUrl(encoded, 'preset');
+    if (url.length > 30000) {
+      onToast(`URL too long (${url.length} chars). Use JSON download instead.`);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      onToast(`Copied URL (${url.length} chars)`);
+    } catch {
+      // Fallback: open prompt
+      window.prompt('Copy this URL:', url);
+    }
+  };
+
+  const handleImport = async (file: File) => {
+    const { parseJsonFile } = await import('@lib/urlShare');
+    const text = await file.text();
+    const parsed = parseJsonFile(text);
+    if (!parsed.ok) {
+      onToast(`Import failed: ${parsed.reason}`);
+      return;
+    }
+    if (parsed.kind === 'preset') {
+      sx.loadPreset(parsed.data as any);
+      onToast(`Loaded preset from ${file.name}`);
+    } else if (parsed.kind === 'replay') {
+      // Replay загрузка через preset (config) + сохранить в localStorage чтобы видеть в Replays tab
+      const { saveReplay } = await import('@lib/replayStorage');
+      const replay = parsed.data as any;
+      // Регенерируем ID чтобы не было коллизии
+      const newId = `replay-${Date.now()}-imported`;
+      const stored = { ...replay, metadata: { ...replay.metadata, id: newId } };
+      saveReplay(stored);
+      onToast(`Imported replay "${replay.metadata.name}" — see Replays tab`);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <button onClick={handleDownload} style={buttonStyle(T.accent, T.bg)}>
+        💾 Download current as .json
+      </button>
+      <button onClick={handleCopyUrl} style={buttonStyle(T.info, T.bg)}>
+        🔗 Copy share URL (preset)
+      </button>
+      <label style={{
+        ...buttonStyle(T.bgOverlay, T.textPrimary),
+        border: `1px dashed ${T.border}`,
+        textAlign: 'center',
+        display: 'block',
+        cursor: 'pointer',
+      }}>
+        📂 Import .json file
+        <input
+          type="file"
+          accept=".json,application/json"
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) handleImport(file);
+            e.target.value = ''; // reset чтобы можно было загрузить тот же файл снова
+          }}
+        />
+      </label>
+    </div>
+  );
+}
+
+function buttonStyle(bg: string, fg: string): React.CSSProperties {
+  return {
+    padding: '8px 12px',
+    background: bg,
+    color: fg,
+    border: 'none',
+    borderRadius: 4,
+    fontFamily: 'JetBrains Mono, monospace',
+    fontSize: 11, fontWeight: 700,
+    cursor: 'pointer',
+    width: '100%',
+  };
 }

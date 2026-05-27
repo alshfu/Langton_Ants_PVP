@@ -1,0 +1,125 @@
+{
+  "id": "surgical-strike",
+  "name": "Surgical Strike",
+  "category": "builtin",
+  "description": "2 players, deploy near alive ants — precise tactical placement",
+  "tags": [
+    "stage6",
+    "reserve",
+    "tactical",
+    "2p"
+  ],
+  "author": "langton-arena",
+  "config": {
+    "width": 80,
+    "height": 60,
+    "topology": "torus",
+    "bgColor": "#0A081A",
+    "showGrid": false,
+    "players": [
+      {
+        "id": "player_0",
+        "name": "P1",
+        "color": "#FF5470",
+        "ruleId": "flower",
+        "startHp": 3,
+        "spawnPattern": "radial",
+        "antCount": 3,
+        "ants": [
+          {
+            "id": "p0_a0",
+            "x": 46,
+            "y": 10,
+            "dir": 0,
+            "ruleOverride": null
+          },
+          {
+            "id": "p0_a1",
+            "x": 61,
+            "y": 30,
+            "dir": 1,
+            "ruleOverride": null
+          },
+          {
+            "id": "p0_a2",
+            "x": 46,
+            "y": 50,
+            "dir": 2,
+            "ruleOverride": null
+          }
+        ]
+      },
+      {
+        "id": "player_1",
+        "name": "P2",
+        "color": "#4DA8FF",
+        "ruleId": "flower",
+        "startHp": 3,
+        "spawnPattern": "radial",
+        "antCount": 3,
+        "ants": [
+          {
+            "id": "p1_a0",
+            "x": 34,
+            "y": 50,
+            "dir": 0,
+            "ruleOverride": null
+          },
+          {
+            "id": "p1_a1",
+            "x": 19,
+            "y": 30,
+            "dir": 1,
+            "ruleOverride": null
+          },
+          {
+            "id": "p1_a2",
+            "x": 34,
+            "y": 10,
+            "dir": 2,
+            "ruleOverride": null
+          }
+        ]
+      }
+    ],
+    "hpEnabled": true,
+    "damageCapEnabled": true,
+    "collisionCooldownTicks": 5,
+    "birthEnabled": true,
+    "birthMinNeighbors": 2,
+    "birthCooldownTicks": 25,
+    "maxAntsPerPlayer": 20,
+    "unlimitedAnts": false,
+    "hybridChance": 0.1,
+    "wildBirthChance": 0,
+    "showGlow": true,
+    "showTrails": true,
+    "showHpDots": true,
+    "showDirectionArrows": false,
+    "showCellState": false,
+    "skinPack": "shape",
+    "heatmapMode": "off",
+    "heatmapOpacity": 0.55,
+    "antScale": 0.9,
+    "trailDecay": 0.94,
+    "baseTps": 15,
+    "speedMultiplier": 1,
+    "seed": 6002,
+    "mutation": {
+      "enabled": false,
+      "haloEnabled": false,
+      "haloMinNeighbors": 6,
+      "mirrorEnabled": false,
+      "mirrorRadius": 2,
+      "pathEnabled": false,
+      "pathStraightTicks": 10
+    },
+    "winCondition": {
+      "kind": "none",
+      "threshold": 5
+    },
+    "reserveMode": true,
+    "deployRule": "near_alive",
+    "deployRadius": 5
+  }
+}

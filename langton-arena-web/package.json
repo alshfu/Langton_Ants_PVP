@@ -11,13 +11,14 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --ext .ts,.tsx",
     "test": "vitest run",
-    "smoke": "node scripts/smoke-test-presets.mjs && node scripts/smoke-test-stage2.mjs && node scripts/smoke-test-determinism.mjs && node scripts/smoke-test-mutations.mjs",
+    "smoke": "node scripts/smoke-test-presets.mjs && node scripts/smoke-test-stage2.mjs && node scripts/smoke-test-determinism.mjs && node scripts/smoke-test-mutations.mjs && node scripts/smoke-test-reserve.mjs",
     "audit": "node scripts/e2e-audit.mjs",
     "audit:headed": "AUDIT_HEADED=1 node scripts/e2e-audit.mjs",
     "audit:strict": "AUDIT_STRICT=1 node scripts/e2e-audit.mjs"
   },
   "dependencies": {
     "jsdom": "^29.1.1",
+    "lz-string": "^1.5.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

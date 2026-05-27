@@ -34,6 +34,10 @@ interface SandboxActions {
   setSelectedAnt: (antId: string | null) => void;
   /** Stage 6: вкл/выкл deploy-режим. */
   setDeployMode: (on: boolean) => void;
+  /** Stage 7: войти в режим playback с конкретным replay. */
+  startPlayback: (replayId: string, replayName: string) => void;
+  /** Stage 7: выйти из режима playback в edit. */
+  stopPlayback: () => void;
 
   loadPreset: (config: SandboxConfig) => void;
   saveUserPreset: (name: string) => { ok: boolean; reason?: string };
@@ -86,7 +90,14 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           return { ...p, ants };
         });
       }
-      return { ...s, sandbox: nextSandbox };
+      return {
+        ...s,
+        sandbox: nextSandbox,
+        // Stage 6: если reserveMode выключили — автоматически выходим из deployMode
+        sandboxRuntime: patch.reserveMode === false
+          ? { ...s.sandboxRuntime, deployMode: false }
+          : s.sandboxRuntime,
+      };
     });
   }, []);
 
@@ -276,6 +287,34 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     setState((s) => ({ ...s, sandboxRuntime: { ...s.sandboxRuntime, deployMode: on } }));
   }, []);
 
+  // Stage 7: playback controls
+  const startPlayback = useCallback((replayId: string, replayName: string) => {
+    setState((s) => ({
+      ...s,
+      sandboxRuntime: {
+        ...s.sandboxRuntime,
+        mode: 'playback',
+        paused: false,
+        activeReplayId: replayId,
+        activeReplayName: replayName,
+        deployMode: false, // выключаем deploy mode когда играем replay
+      },
+    }));
+  }, []);
+
+  const stopPlayback = useCallback(() => {
+    setState((s) => ({
+      ...s,
+      sandboxRuntime: {
+        ...s.sandboxRuntime,
+        mode: 'edit',
+        paused: true,
+        activeReplayId: null,
+        activeReplayName: null,
+      },
+    }));
+  }, []);
+
   const loadPreset = useCallback((config: SandboxConfig) => {
     setState((s) => ({
       ...s,
@@ -311,12 +350,14 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     addPlayer, removePlayer, patchPlayer, respawnAntsForPlayer,
     addAnt, removeAnt, patchAnt,
     setMode, setPaused, setActivePlayer, setSelectedAnt, setDeployMode,
+    startPlayback, stopPlayback,
     loadPreset, saveUserPreset, deleteUserPreset,
   }), [
     patchSandbox, resetSandbox, reseed, resetWithSameSeed,
     addPlayer, removePlayer, patchPlayer, respawnAntsForPlayer,
     addAnt, removeAnt, patchAnt,
     setMode, setPaused, setActivePlayer, setSelectedAnt, setDeployMode,
+    startPlayback, stopPlayback,
     loadPreset, saveUserPreset, deleteUserPreset,
   ]);
 
