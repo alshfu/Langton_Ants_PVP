@@ -1,14 +1,15 @@
 // src/server.ts
 //
-// MvpServer — WebSocket server обёртка. Tracks connections, маршрутизирует
-// сообщения через routeMessage(). Stage 8 Day 2 — только plumbing, room/match
-// state будет добавлен в Day 3+.
+// MvpServer — WebSocket server обёртка. Stage 8 Day 4.
+// Owns: WebSocketServer + Set<Connection> + ServerContext (rooms + match timing).
+// Routes incoming messages через routeMessage + cleanup on disconnect.
 
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { AddressInfo } from 'node:net';
 import { Connection } from './connection.js';
 import { routeMessage, leaveCurrentRoom } from './router.js';
 import { RoomManager } from './roomManager.js';
+import { makeContext, type ServerContext } from './serverContext.js';
 
 export interface MvpServerOptions {
   /** Port. 0 для random — полезно для тестов. Default 8080. */
@@ -17,12 +18,16 @@ export interface MvpServerOptions {
   host?: string;
   /** Логгер — простой callback. Default console.log. */
   logger?: (level: 'info' | 'warn' | 'error', msg: string, meta?: object) => void;
+  /** match_starting countdown ms. Default 3000. Test override: 50. */
+  matchCountdownMs?: number;
+  /** Match tick interval ms. Default 100 (10 TPS). Test override: 5. */
+  matchTickIntervalMs?: number;
 }
 
 export class MvpServer {
   private wss: WebSocketServer | null = null;
   private connections: Set<Connection> = new Set();
-  readonly rooms: RoomManager = new RoomManager();
+  readonly ctx: ServerContext;
   private readonly logger: NonNullable<MvpServerOptions['logger']>;
   private readonly host: string;
   private readonly port: number;
@@ -35,9 +40,16 @@ export class MvpServer {
       const metaStr = meta ? ' ' + JSON.stringify(meta) : '';
       console.log(`[${ts}] [${level}] ${msg}${metaStr}`);
     });
+    this.ctx = makeContext({
+      rooms: new RoomManager(),
+      matchCountdownMs: opts.matchCountdownMs,
+      matchTickIntervalMs: opts.matchTickIntervalMs,
+    });
   }
 
-  /** Запустить сервер. Resolve когда listening. */
+  /** Backwards-compat: expose rooms (для tests которые ссылались на server.rooms). */
+  get rooms(): RoomManager { return this.ctx.rooms; }
+
   async start(): Promise<{ host: string; port: number }> {
     if (this.wss) throw new Error('server already started');
 
@@ -47,7 +59,6 @@ export class MvpServer {
       this.logger('error', 'WSS error', { err: String(err) });
     });
 
-    // Wait listening
     await new Promise<void>((resolve) => {
       this.wss!.once('listening', resolve);
     });
@@ -57,13 +68,21 @@ export class MvpServer {
     return { host: addr.address, port: addr.port };
   }
 
-  /** Graceful shutdown — close all connections, then close server. */
   async stop(): Promise<void> {
     if (!this.wss) return;
+    // Stop all active matches first (prevents tick interval leaks after server shutdown)
+    for (const room of this.ctx.rooms.all) {
+      if (room.activeMatch) room.activeMatch.stop();
+      if (room.countdownHandle) {
+        clearTimeout(room.countdownHandle);
+        room.countdownHandle = null;
+      }
+    }
     for (const conn of this.connections) {
       conn.close('server-shutdown');
     }
     this.connections.clear();
+    this.ctx.rooms.clear();
     await new Promise<void>((resolve, reject) => {
       this.wss!.close((err) => {
         if (err) reject(err);
@@ -74,7 +93,6 @@ export class MvpServer {
     this.logger('info', 'mvp-server stopped');
   }
 
-  /** Number of active connections (for tests / monitoring). */
   get connectionCount(): number {
     return this.connections.size;
   }
@@ -85,16 +103,15 @@ export class MvpServer {
     this.logger('info', 'client connected', { clientId: conn.clientId });
 
     ws.on('message', (data) => {
-      // ws library types: data может быть Buffer | ArrayBuffer | Buffer[]. Нормализуем.
       const raw = Array.isArray(data) ? Buffer.concat(data) : (data as Buffer);
-      routeMessage(conn, raw, this.rooms);
+      routeMessage(conn, raw, this.ctx);
     });
 
     ws.on('close', () => {
       this.connections.delete(conn);
       conn.closed = true;
-      // Stage 8 Day 3: cleanup room state + broadcast другим игрокам
-      leaveCurrentRoom(conn, this.rooms);
+      // Stage 8 Day 4: cleanup room/countdown/match + broadcast другим игрокам
+      leaveCurrentRoom(conn, this.ctx);
       this.logger('info', 'client disconnected', {
         clientId: conn.clientId,
         duration: Date.now() - conn.connectedAt,

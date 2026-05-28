@@ -10,6 +10,7 @@
 
 import type { Connection } from './connection.js';
 import type { ServerMessage, PlayerInfo } from './messages.js';
+import type { Match } from './match.js';
 
 export type RoomStatus = 'lobby' | 'countdown' | 'playing' | 'finished';
 
@@ -20,6 +21,10 @@ export class Room {
   readonly createdAt: number;
   readonly players: Connection[] = [];
   status: RoomStatus = 'lobby';
+  /** Активный match (Day 4) — null до match_starting countdown completes. */
+  activeMatch: Match | null = null;
+  /** Handle setTimeout countdown'а — для отмены если игрок ушёл. */
+  countdownHandle: NodeJS.Timeout | null = null;
 
   constructor(code: string) {
     this.code = code;

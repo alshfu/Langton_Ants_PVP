@@ -76,7 +76,14 @@ describe('MvpServer integration', () => {
   let url: string;
 
   beforeEach(async () => {
-    server = new MvpServer({ port: 0, logger: () => { /* silent */ } });
+    // Day 4: fast timing для тестов — countdown 30ms + tick 5ms.
+    // Реальный prod = 3000ms + 100ms. Поведенчески одинаково.
+    server = new MvpServer({
+      port: 0,
+      logger: () => { /* silent */ },
+      matchCountdownMs: 30,
+      matchTickIntervalMs: 5,
+    });
     const { host, port } = await server.start();
     url = `ws://${host}:${port}`;
   });
@@ -221,5 +228,118 @@ describe('MvpServer integration', () => {
     await server.stop();
     await Promise.all([closePromiseA, closePromiseB]);
     expect(server.connectionCount).toBe(0);
+  });
+
+  // ─── Day 4 — Match lifecycle ──────────────────────────────────────────────
+
+  /** Helper: setup 2 клиентов в одной room, оба ready. Возвращает {a, b}. */
+  async function setupReadyPair(roomCode = 'r') {
+    const a = await openClient(url);
+    const b = await openClient(url);
+    a.ws.send(joinMsg(roomCode, 'Alice'));
+    b.ws.send(joinMsg(roomCode, 'Bob'));
+    await a.inbox.waitFor((m) => m.type === 'room_updated' && (m as any).players.length === 2);
+    await b.inbox.waitFor((m) => m.type === 'room_updated' && (m as any).players.length === 2);
+    a.ws.send(JSON.stringify({ type: 'set_ready', ready: true }));
+    b.ws.send(JSON.stringify({ type: 'set_ready', ready: true }));
+    return { a, b };
+  }
+
+  it('оба ready → match_starting broadcast (config, seed, matchId)', async () => {
+    const { a, b } = await setupReadyPair();
+    const startingA = await a.inbox.waitFor((m) => m.type === 'match_starting');
+    const startingB = await b.inbox.waitFor((m) => m.type === 'match_starting');
+    expect((startingA as any).matchId).toBeDefined();
+    expect((startingA as any).seed).toEqual((startingB as any).seed); // оба видят тот же seed
+    expect((startingA as any).config.width).toBe(60);
+    expect((startingA as any).countdownMs).toBe(30);
+    a.ws.close(); b.ws.close();
+  });
+
+  it('после countdown → match_started', async () => {
+    const { a, b } = await setupReadyPair();
+    await a.inbox.waitFor((m) => m.type === 'match_starting');
+    const startedA = await a.inbox.waitFor((m) => m.type === 'match_started', 500);
+    const startedB = await b.inbox.waitFor((m) => m.type === 'match_started', 500);
+    expect((startedA as any).matchId).toEqual((startedB as any).matchId);
+    expect((startedA as any).serverEngineVersion).toBe('0.1.0');
+    a.ws.close(); b.ws.close();
+  });
+
+  it('после match_started → match_tick broadcast', async () => {
+    const { a, b } = await setupReadyPair();
+    await a.inbox.waitFor((m) => m.type === 'match_started', 500);
+    const tickA = await a.inbox.waitFor((m) => m.type === 'match_tick', 500);
+    const tickB = await b.inbox.waitFor((m) => m.type === 'match_tick', 500);
+    expect((tickA as any).tick).toBeGreaterThanOrEqual(1);
+    expect((tickB as any).tick).toBeGreaterThanOrEqual(1);
+    expect((tickA as any).deploys).toEqual([]); // Day 4 — пустой
+    a.ws.close(); b.ws.close();
+  });
+
+  it('time win → match_ended после threshold ticks', async () => {
+    // С threshold=300 и tickInterval=5ms — ~1.5 секунды до конца.
+    // Это многовато для тестов. Поэтому override config через monkey-patch:
+    // ставим threshold=10 через симуляцию.
+    // Решение: использовать дефолтный 300 не подходит, тест бы стоял 1.5s.
+    // Для быстрого ended теста — увеличиваем tickInterval=2ms (вдвое быстрее)
+    await server.stop();
+    server = new MvpServer({
+      port: 0,
+      logger: () => { /* silent */ },
+      matchCountdownMs: 20,
+      matchTickIntervalMs: 2, // 500 TPS — за ~600мс пробежим 300 ticks
+    });
+    const { port } = await server.start();
+    url = `ws://127.0.0.1:${port}`;
+
+    const { a, b } = await setupReadyPair('fast');
+    await a.inbox.waitFor((m) => m.type === 'match_started', 1000);
+    const endedA = await a.inbox.waitFor((m) => m.type === 'match_ended', 3000);
+    const endedB = await b.inbox.waitFor((m) => m.type === 'match_ended', 3000);
+    expect((endedA as any).result.finished).toBe(true);
+    expect((endedA as any).result.reason).toBe('time_expired');
+    expect((endedB as any).result.finished).toBe(true);
+    expect((endedA as any).result.finishedAtTick).toBeGreaterThanOrEqual(300);
+    a.ws.close(); b.ws.close();
+  });
+
+  it('un-ready во время countdown — не отменяет (игнорируется)', async () => {
+    const { a, b } = await setupReadyPair();
+    await a.inbox.waitFor((m) => m.type === 'match_starting');
+    // Сразу шлём set_ready=false — должно быть игнорировано (status=countdown)
+    a.ws.send(JSON.stringify({ type: 'set_ready', ready: false }));
+    // match_started ВСЁ РАВНО придёт
+    const started = await a.inbox.waitFor((m) => m.type === 'match_started', 500);
+    expect((started as any).matchId).toBeDefined();
+    a.ws.close(); b.ws.close();
+  });
+
+  it('disconnect во время countdown → countdown cancel, partner stays in lobby', async () => {
+    const { a, b } = await setupReadyPair();
+    await a.inbox.waitFor((m) => m.type === 'match_starting');
+    // Сразу disconnect A
+    a.ws.close();
+    // B получает room_updated (player A ушёл) — НЕ match_started
+    await b.inbox.waitFor((m) =>
+      m.type === 'room_updated' && (m as any).players.length === 1
+    , 1000);
+    // Не должно быть match_started в течение 200ms (timeout — это OK)
+    const noStart = await b.inbox.waitFor((m) => m.type === 'match_started', 200).catch(() => null);
+    expect(noStart).toBeNull(); // null = timeout = match_started НЕ пришёл (correct)
+    b.ws.close();
+  });
+
+  it('disconnect во время match → match_ended с winner=другой', async () => {
+    const { a, b } = await setupReadyPair();
+    await a.inbox.waitFor((m) => m.type === 'match_started', 500);
+    // Ждём пока хотя бы один tick пройдёт
+    await a.inbox.waitFor((m) => m.type === 'match_tick', 500);
+    a.ws.close();
+    const ended = await b.inbox.waitFor((m) => m.type === 'match_ended', 500);
+    expect((ended as any).result.finished).toBe(true);
+    expect((ended as any).result.reason).toBe('opponent_disconnected');
+    expect((ended as any).result.winnerId).toBe('p1'); // B = index 1, побеждает
+    b.ws.close();
   });
 });

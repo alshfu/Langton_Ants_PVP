@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { routeMessage } from '../src/router';
 import { ERROR_CODES, type ServerMessage } from '../src/messages';
 import { RoomManager } from '../src/roomManager';
+import { makeContext, type ServerContext } from '../src/serverContext';
 
 /** Минимальный mock Connection — собирает sent messages в массив. */
 class MockConnection {
@@ -36,27 +37,31 @@ class MockConnection {
 describe('router.routeMessage', () => {
   let conn: MockConnection;
   let rooms: RoomManager;
+  let ctx: ServerContext;
 
   beforeEach(() => {
     conn = new MockConnection();
     rooms = new RoomManager();
+    // Day 4: countdown 100s (effectively disabled — tests stuck in lobby).
+    // Чтобы тест не триггерил match_starting когда не нужно.
+    ctx = makeContext({ rooms, matchCountdownMs: 100_000, matchTickIntervalMs: 100_000 });
   });
 
   // ─── Parse / validate ──────────────────────────────────────────────────────
 
   it('возвращает MALFORMED_MESSAGE на invalid JSON', () => {
-    routeMessage(conn as any, 'not-a-json{', rooms);
+    routeMessage(conn as any, 'not-a-json{', ctx);
     expect(conn.sent[0]!.type).toBe('error');
     expect((conn.sent[0] as any).code).toBe(ERROR_CODES.MALFORMED_MESSAGE);
   });
 
   it('возвращает MALFORMED_MESSAGE если нет type field', () => {
-    routeMessage(conn as any, JSON.stringify({ foo: 'bar' }), rooms);
+    routeMessage(conn as any, JSON.stringify({ foo: 'bar' }), ctx);
     expect((conn.sent[0] as any).code).toBe(ERROR_CODES.MALFORMED_MESSAGE);
   });
 
   it('возвращает UNKNOWN_MESSAGE_TYPE для unrecognized type', () => {
-    routeMessage(conn as any, JSON.stringify({ type: 'evil_hack' }), rooms);
+    routeMessage(conn as any, JSON.stringify({ type: 'evil_hack' }), ctx);
     expect((conn.sent[0] as any).code).toBe(ERROR_CODES.UNKNOWN_MESSAGE_TYPE);
   });
 
@@ -64,7 +69,7 @@ describe('router.routeMessage', () => {
 
   it('ping → pong с теми же t + serverT', () => {
     const t0 = 1234567890;
-    routeMessage(conn as any, JSON.stringify({ type: 'ping', t: t0 }), rooms);
+    routeMessage(conn as any, JSON.stringify({ type: 'ping', t: t0 }), ctx);
     expect(conn.sent).toHaveLength(1);
     const pong = conn.sent[0] as any;
     expect(pong.type).toBe('pong');
@@ -80,7 +85,7 @@ describe('router.routeMessage', () => {
       roomCode: 'abc123',
       nickname: 'BraveAnt-42',
       locale: 'ru',
-    }), rooms);
+    }), ctx);
     expect(conn.locale).toBe('ru');
     expect(conn.nickname).toBe('BraveAnt-42');
     expect(conn.roomCode).toBe('abc123');
@@ -102,10 +107,10 @@ describe('router.routeMessage', () => {
     const conn2 = new MockConnection('client-2');
     routeMessage(conn as any, JSON.stringify({
       type: 'join_room', roomCode: 'r1', nickname: 'A', locale: 'en',
-    }), rooms);
+    }), ctx);
     routeMessage(conn2 as any, JSON.stringify({
       type: 'join_room', roomCode: 'r1', nickname: 'B', locale: 'en',
-    }), rooms);
+    }), ctx);
     expect(rooms.size).toBe(1);
     const room = rooms.get('r1')!;
     expect(room.players).toHaveLength(2);
@@ -121,9 +126,9 @@ describe('router.routeMessage', () => {
     const joinMsg = (n: string) => JSON.stringify({
       type: 'join_room', roomCode: 'r', nickname: n, locale: 'en',
     });
-    routeMessage(conn as any, joinMsg('A'), rooms);
-    routeMessage(c2 as any, joinMsg('B'), rooms);
-    routeMessage(c3 as any, joinMsg('C'), rooms);
+    routeMessage(conn as any, joinMsg('A'), ctx);
+    routeMessage(c2 as any, joinMsg('B'), ctx);
+    routeMessage(c3 as any, joinMsg('C'), ctx);
 
     const lastFromC3 = c3.sent[c3.sent.length - 1] as any;
     expect(lastFromC3.code).toBe(ERROR_CODES.ROOM_FULL);
@@ -132,7 +137,7 @@ describe('router.routeMessage', () => {
   it('join_room — invalid nickname → MALFORMED_MESSAGE', () => {
     routeMessage(conn as any, JSON.stringify({
       type: 'join_room', roomCode: 'r', nickname: '<script>', locale: 'en',
-    }), rooms);
+    }), ctx);
     expect((conn.sent[0] as any).code).toBe(ERROR_CODES.MALFORMED_MESSAGE);
     expect(rooms.size).toBe(0);
   });
@@ -140,7 +145,7 @@ describe('router.routeMessage', () => {
   it('join_room — empty roomCode → MALFORMED_MESSAGE', () => {
     routeMessage(conn as any, JSON.stringify({
       type: 'join_room', roomCode: '', nickname: 'A', locale: 'en',
-    }), rooms);
+    }), ctx);
     expect((conn.sent[0] as any).code).toBe(ERROR_CODES.MALFORMED_MESSAGE);
   });
 
@@ -149,10 +154,10 @@ describe('router.routeMessage', () => {
   it('leave_room — снимает с room + room удаляется если пуст', () => {
     routeMessage(conn as any, JSON.stringify({
       type: 'join_room', roomCode: 'r', nickname: 'A', locale: 'en',
-    }), rooms);
+    }), ctx);
     expect(rooms.size).toBe(1);
 
-    routeMessage(conn as any, JSON.stringify({ type: 'leave_room' }), rooms);
+    routeMessage(conn as any, JSON.stringify({ type: 'leave_room' }), ctx);
     expect(conn.roomCode).toBe(null);
     expect(rooms.size).toBe(0);
   });
@@ -161,13 +166,13 @@ describe('router.routeMessage', () => {
     const c2 = new MockConnection('2');
     routeMessage(conn as any, JSON.stringify({
       type: 'join_room', roomCode: 'r', nickname: 'A', locale: 'en',
-    }), rooms);
+    }), ctx);
     routeMessage(c2 as any, JSON.stringify({
       type: 'join_room', roomCode: 'r', nickname: 'B', locale: 'en',
-    }), rooms);
+    }), ctx);
     c2.sent = []; // reset
 
-    routeMessage(conn as any, JSON.stringify({ type: 'leave_room' }), rooms);
+    routeMessage(conn as any, JSON.stringify({ type: 'leave_room' }), ctx);
     expect(rooms.size).toBe(1);
     expect(rooms.get('r')!.players).toHaveLength(1);
     // c2 получил room_updated
@@ -179,17 +184,17 @@ describe('router.routeMessage', () => {
   // ─── set_ready ─────────────────────────────────────────────────────────────
 
   it('set_ready до join → NOT_IN_ROOM', () => {
-    routeMessage(conn as any, JSON.stringify({ type: 'set_ready', ready: true }), rooms);
+    routeMessage(conn as any, JSON.stringify({ type: 'set_ready', ready: true }), ctx);
     expect((conn.sent[0] as any).code).toBe(ERROR_CODES.NOT_IN_ROOM);
   });
 
   it('set_ready после join — обновляет ready + broadcast', () => {
     routeMessage(conn as any, JSON.stringify({
       type: 'join_room', roomCode: 'r', nickname: 'A', locale: 'en',
-    }), rooms);
+    }), ctx);
     conn.sent = [];
 
-    routeMessage(conn as any, JSON.stringify({ type: 'set_ready', ready: true }), rooms);
+    routeMessage(conn as any, JSON.stringify({ type: 'set_ready', ready: true }), ctx);
     expect(conn.ready).toBe(true);
     const upd = conn.sent.find((m) => m.type === 'room_updated') as any;
     expect(upd).toBeDefined();
@@ -199,16 +204,16 @@ describe('router.routeMessage', () => {
   // ─── deploy ────────────────────────────────────────────────────────────────
 
   it('deploy до join → NOT_IN_ROOM', () => {
-    routeMessage(conn as any, JSON.stringify({ type: 'deploy', x: 5, y: 5, tick: 1 }), rooms);
+    routeMessage(conn as any, JSON.stringify({ type: 'deploy', x: 5, y: 5, tick: 1 }), ctx);
     expect((conn.sent[0] as any).code).toBe(ERROR_CODES.NOT_IN_ROOM);
   });
 
   it('deploy внутри room (lobby) → MATCH_NOT_ACTIVE (Day 5 stub)', () => {
     routeMessage(conn as any, JSON.stringify({
       type: 'join_room', roomCode: 'r', nickname: 'A', locale: 'en',
-    }), rooms);
+    }), ctx);
     conn.sent = [];
-    routeMessage(conn as any, JSON.stringify({ type: 'deploy', x: 5, y: 5, tick: 1 }), rooms);
+    routeMessage(conn as any, JSON.stringify({ type: 'deploy', x: 5, y: 5, tick: 1 }), ctx);
     expect((conn.sent[0] as any).code).toBe(ERROR_CODES.MATCH_NOT_ACTIVE);
   });
 });

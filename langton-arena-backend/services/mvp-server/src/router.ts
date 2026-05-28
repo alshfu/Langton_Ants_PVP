@@ -1,21 +1,24 @@
 // src/router.ts
 //
 // Маршрутизация incoming WebSocket messages.
-// Stage 8 Day 3: реальная Room logic.
-// Stage 8 Day 4+: match_starting trigger когда allReady().
+// Stage 8 Day 4: ServerContext (rooms + timing) + match countdown trigger.
 // Stage 8 Day 5: deploy → canDeploy validation.
 
 import { ERROR_CODES, isClientMessage, type ClientMessage } from './messages.js';
 import type { Connection } from './connection.js';
-import type { RoomManager } from './roomManager.js';
+import type { ServerContext } from './serverContext.js';
 import { isValidNickname } from './nicknames.js';
+import {
+  startMatchCountdown,
+  cancelMatchCountdown,
+  endActiveMatch,
+} from './matchLifecycle.js';
 
 /**
  * Парсит raw buffer/string как JSON, валидирует shape, передаёт в handler.
  * Любая ошибка → conn.sendError(...) и return (не throw).
  */
-export function routeMessage(conn: Connection, raw: Buffer | string, rooms: RoomManager): void {
-  // 1. Parse JSON
+export function routeMessage(conn: Connection, raw: Buffer | string, ctx: ServerContext): void {
   let parsed: unknown;
   try {
     const text = typeof raw === 'string' ? raw : raw.toString('utf8');
@@ -25,7 +28,6 @@ export function routeMessage(conn: Connection, raw: Buffer | string, rooms: Room
     return;
   }
 
-  // 2. Validate shape
   if (!isClientMessage(parsed)) {
     if (parsed && typeof parsed === 'object' && 'type' in parsed) {
       conn.sendError(ERROR_CODES.UNKNOWN_MESSAGE_TYPE);
@@ -35,14 +37,14 @@ export function routeMessage(conn: Connection, raw: Buffer | string, rooms: Room
     return;
   }
 
-  dispatch(conn, parsed, rooms);
+  dispatch(conn, parsed, ctx);
 }
 
-function dispatch(conn: Connection, msg: ClientMessage, rooms: RoomManager): void {
+function dispatch(conn: Connection, msg: ClientMessage, ctx: ServerContext): void {
   switch (msg.type) {
-    case 'join_room':       return handleJoinRoom(conn, msg, rooms);
-    case 'leave_room':      return handleLeaveRoom(conn, rooms);
-    case 'set_ready':       return handleSetReady(conn, msg, rooms);
+    case 'join_room':       return handleJoinRoom(conn, msg, ctx);
+    case 'leave_room':      return handleLeaveRoom(conn, ctx);
+    case 'set_ready':       return handleSetReady(conn, msg, ctx);
     case 'deploy':          return handleDeploy(conn);
     case 'ping':            return handlePing(conn, msg);
     default: {
@@ -58,9 +60,8 @@ function dispatch(conn: Connection, msg: ClientMessage, rooms: RoomManager): voi
 function handleJoinRoom(
   conn: Connection,
   msg: Extract<ClientMessage, { type: 'join_room' }>,
-  rooms: RoomManager,
+  ctx: ServerContext,
 ): void {
-  // Validation
   if (!isValidNickname(msg.nickname)) {
     conn.sendError(ERROR_CODES.MALFORMED_MESSAGE);
     return;
@@ -73,58 +74,64 @@ function handleJoinRoom(
   conn.setLocale(msg.locale);
   conn.nickname = msg.nickname;
 
-  // Если игрок был в другой комнате — выходим оттуда
   if (conn.roomCode && conn.roomCode !== msg.roomCode) {
-    leaveCurrentRoom(conn, rooms);
+    leaveCurrentRoom(conn, ctx);
   }
 
-  const room = rooms.getOrCreate(msg.roomCode);
+  const room = ctx.rooms.getOrCreate(msg.roomCode);
   const added = room.addPlayer(conn);
   if (!added) {
     conn.sendError(ERROR_CODES.ROOM_FULL);
     return;
   }
 
-  // Ack игроку
   conn.send({
     type: 'room_joined',
     roomCode: room.code,
     clientId: conn.clientId,
     players: room.getPlayerInfos(),
   });
-
-  // Broadcast всем в room (включая нового игрока — для consistency)
   room.broadcast({
     type: 'room_updated',
     players: room.getPlayerInfos(),
   });
 }
 
-function handleLeaveRoom(conn: Connection, rooms: RoomManager): void {
-  leaveCurrentRoom(conn, rooms);
+function handleLeaveRoom(conn: Connection, ctx: ServerContext): void {
+  leaveCurrentRoom(conn, ctx);
 }
 
 function handleSetReady(
   conn: Connection,
   msg: Extract<ClientMessage, { type: 'set_ready' }>,
-  rooms: RoomManager,
+  ctx: ServerContext,
 ): void {
   if (!conn.roomCode) {
     conn.sendError(ERROR_CODES.NOT_IN_ROOM);
     return;
   }
-  const room = rooms.get(conn.roomCode);
+  const room = ctx.rooms.get(conn.roomCode);
   if (!room) {
     conn.sendError(ERROR_CODES.ROOM_NOT_FOUND);
     return;
   }
+
+  // Stage 8 Day 4: ready нельзя менять во время countdown/playing — игнорируем.
+  // Иначе race condition: оба ready → countdown → один un-ready'ится → countdown abort.
+  if (room.status !== 'lobby') {
+    return;
+  }
+
   conn.ready = msg.ready;
   room.broadcast({
     type: 'room_updated',
     players: room.getPlayerInfos(),
   });
-  // Day 4 hook: room.allReady() → trigger match_starting.
-  // Day 3 — no-op (просто broadcast обновлённого state).
+
+  // Stage 8 Day 4: trigger match_starting countdown когда allReady
+  if (room.allReady()) {
+    startMatchCountdown(room, ctx);
+  }
 }
 
 function handleDeploy(conn: Connection): void {
@@ -132,7 +139,7 @@ function handleDeploy(conn: Connection): void {
     conn.sendError(ERROR_CODES.NOT_IN_ROOM);
     return;
   }
-  // Day 5: canDeploy validation + queue
+  // Day 5: canDeploy validation + queue. Day 4 — match_tick без deploys.
   conn.sendError(ERROR_CODES.MATCH_NOT_ACTIVE);
 }
 
@@ -151,18 +158,38 @@ function handlePing(
 
 /**
  * Снять connection с его текущего room (если есть), broadcast обновление,
- * удалить пустой room из manager. Используется в leave_room + при disconnect.
+ * cancel countdown если шёл, end match если активен, удалить пустой room.
+ * Используется в leave_room + при ws.close().
  */
-export function leaveCurrentRoom(conn: Connection, rooms: RoomManager): void {
+export function leaveCurrentRoom(conn: Connection, ctx: ServerContext): void {
   if (!conn.roomCode) return;
-  const room = rooms.get(conn.roomCode);
+  const room = ctx.rooms.get(conn.roomCode);
   if (!room) {
     conn.roomCode = null;
     return;
   }
+
+  // Day 4: если был активный match — оппонент побеждает по disconnect
+  if (room.activeMatch && !room.activeMatch.isFinished) {
+    const leavingIdx = room.players.indexOf(conn);
+    const winnerIdx = leavingIdx === 0 ? 1 : 0;
+    endActiveMatch(room, 'opponent_disconnected', winnerIdx);
+  }
+
+  // Day 4: если шёл countdown — отменить
+  if (room.status === 'countdown') {
+    cancelMatchCountdown(room);
+  }
+
   room.removePlayer(conn);
+
   if (room.isEmpty()) {
-    rooms.delete(room.code);
+    // Cleanup active match interval если ещё не остановлен
+    if (room.activeMatch && !room.activeMatch.isFinished) {
+      room.activeMatch.stop();
+    }
+    room.activeMatch = null;
+    ctx.rooms.delete(room.code);
   } else {
     room.broadcast({
       type: 'room_updated',
