@@ -9,17 +9,18 @@
     "build": "tsc",
     "dev": "tsx watch ./src/main.ts",
     "start": "node ./dist/main.js",
+    "start:prod": "tsx ./src/main.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
     "@langton/core": "workspace:*",
+    "tsx": "^4.7.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/ws": "^8.5.10",
-    "tsx": "^4.7.0",
     "typescript": "^5.3.0",
     "vitest": "^1.2.0"
   }

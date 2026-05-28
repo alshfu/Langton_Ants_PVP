@@ -8,7 +8,9 @@
 import { MvpServer } from './server.js';
 
 const PORT = parseInt(process.env.PORT ?? '8080', 10);
-const HOST = process.env.HOST ?? '127.0.0.1';
+// Cloud deploy (Render/Cloud Run/etc) требует listen на 0.0.0.0 чтобы
+// принимать внешний трафик. Локально 127.0.0.1 ограничивает loopback.
+const HOST = process.env.HOST ?? (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
 
 const server = new MvpServer({ port: PORT, host: HOST });
 

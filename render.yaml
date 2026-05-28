@@ -1,0 +1,27 @@
+# render.yaml — Render.com Infrastructure as Code.
+# https://render.com/docs/blueprint-spec
+#
+# Использование:
+#   1. Push render.yaml в main
+#   2. На https://dashboard.render.com → New → Blueprint → connect this repo
+#   3. Render автоматически создаст service из Dockerfile
+#
+# Free tier: 750 instance-hours/month (≈ 1 instance always-on бесплатно).
+# Sleeps после 15 минут idle (free), просыпается за ~30s на первом запросе.
+# Для PvP MVP теста с друзьями — нормально.
+
+services:
+  - type: web
+    name: langton-arena-server
+    runtime: docker
+    plan: free
+    region: frankfurt   # EU — ниже RTT для друзей из Европы
+    healthCheckPath: /health
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      # PORT задаётся Render автоматически

@@ -1,0 +1,36 @@
+# .dockerignore — что НЕ копировать в build context.
+# Reduces image size + speeds up build.
+
+# Node deps (поставятся внутри Docker)
+**/node_modules
+
+# Test/dev artefacts
+**/dist
+**/build
+**/.next
+**/.cache
+**/.turbo
+**/coverage
+
+# Frontend artefacts — мы деплоим только backend
+langton-arena-web/dist
+langton-arena-web/.vite
+
+# Wiki/prototype
+ux-prototype
+.github
+
+# Editor/OS
+.git
+.idea
+.vscode
+.DS_Store
+*.log
+
+# Runtime artefacts
+/tmp
+*.local
+
+# Tests run отдельно — не нужны в production image
+**/*.test.ts
+**/tests

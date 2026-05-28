@@ -5,6 +5,7 @@
 // Routes incoming messages через routeMessage + cleanup on disconnect.
 
 import { WebSocketServer, type WebSocket } from 'ws';
+import { createServer, type Server as HttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Connection } from './connection.js';
 import { routeMessage, handleConnectionClose } from './router.js';
@@ -28,6 +29,7 @@ export interface MvpServerOptions {
 
 export class MvpServer {
   private wss: WebSocketServer | null = null;
+  private httpServer: HttpServer | null = null;
   private connections: Set<Connection> = new Set();
   readonly ctx: ServerContext;
   private readonly logger: NonNullable<MvpServerOptions['logger']>;
@@ -56,17 +58,36 @@ export class MvpServer {
   async start(): Promise<{ host: string; port: number }> {
     if (this.wss) throw new Error('server already started');
 
-    this.wss = new WebSocketServer({ host: this.host, port: this.port });
+    // Day 13.5: единый http.Server обслуживает и health-check GET и WS upgrade.
+    // Нужно для Render/Cloud Run/большинства hostings — они проверяют HTTP /
+    // перед routing'ом трафика. Pure-WS server упадёт на health check.
+    this.httpServer = createServer((req, res) => {
+      const url = req.url ?? '/';
+      if (url === '/' || url === '/health' || url === '/healthz') {
+        res.writeHead(200, {
+          'Content-Type': 'text/plain',
+          'Cache-Control': 'no-store',
+        });
+        res.end('OK · Langton Arena PvP MVP server\n');
+        return;
+      }
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not found\n');
+    });
+
+    this.wss = new WebSocketServer({ server: this.httpServer });
     this.wss.on('connection', (ws) => this.handleConnection(ws));
     this.wss.on('error', (err) => {
       this.logger('error', 'WSS error', { err: String(err) });
     });
 
-    await new Promise<void>((resolve) => {
-      this.wss!.once('listening', resolve);
+    await new Promise<void>((resolve, reject) => {
+      this.httpServer!.once('listening', resolve);
+      this.httpServer!.once('error', reject);
+      this.httpServer!.listen(this.port, this.host);
     });
 
-    const addr = this.wss.address() as AddressInfo;
+    const addr = this.httpServer.address() as AddressInfo;
     this.logger('info', 'mvp-server listening', { host: addr.address, port: addr.port });
     return { host: addr.address, port: addr.port };
   }
@@ -95,6 +116,16 @@ export class MvpServer {
         else resolve();
       });
     });
+    // Close underlying http.Server (если был создан в start())
+    if (this.httpServer) {
+      await new Promise<void>((resolve, reject) => {
+        this.httpServer!.close((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+      this.httpServer = null;
+    }
     this.wss = null;
     this.logger('info', 'mvp-server stopped');
   }
