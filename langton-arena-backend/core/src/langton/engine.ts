@@ -1,24 +1,30 @@
-// src/core/langton/engine.ts
+// core/src/langton/engine.ts
 //
 // Полностью рабочий сим-движок Лэнгтона.
 // Поддерживает: HP, immunity frames, damage cap, рождение/гибриды/диких.
 // Stage 7.6: 4 topology modes (torus / wall / bounce / void).
+// Stage 8.day7-multi-grid: 3 grid types (square / triangle / hexagonal).
 //
-// Используется в SandboxScreen для live-визуализации.
-// В production-варианте этот код будет общим с бэкендом (через @langton/core).
+// Используется в SandboxScreen для live-визуализации и server-side в mvp-server.
 
-import { LA_DIRS } from './rules';
 import { mulberry32, type PRNG } from './prng';
+import { getNeighbors, getNumDirs, applyRuleChar, type GridType } from './grid';
 
 /** Stage 7.6: поведение муравья при попытке пересечь край поля. */
 export type Topology = 'torus' | 'wall' | 'bounce' | 'void';
+/** Re-export GridType — engine использует, контракт ссылается. */
+export type { GridType } from './grid';
 
 export interface Ant {
   id: string;
   owner: number;
   x: number;
   y: number;
-  dir: 0 | 1 | 2 | 3;
+  /**
+   * Направление муравья. На square — 0..3 (NESW), на triangle — 0..2,
+   * на hexagonal — 0..5. Maximum = numDirs(gridType) - 1.
+   */
+  dir: number;
   rule: string;
   hp: number;
   maxHp: number;
@@ -79,6 +85,14 @@ export interface SimState {
   seed: number;
   /** Stage 7.6: поведение на краях. По умолчанию 'torus' (wrap-around). */
   topology: Topology;
+  /**
+   * Stage 8 multi-grid: тип сетки.
+   *   - 'square'    {4,4} — 4 соседа, ant.dir ∈ 0..3, R/L = ±90°
+   *   - 'triangle'  {3,6} — 3 соседа, ant.dir ∈ 0..2, R/L = ±120°
+   *   - 'hexagonal' {6,3} — 6 соседей, ant.dir ∈ 0..5, R/L = ±60°
+   * Default 'square' для обратной совместимости.
+   */
+  gridType: GridType;
 }
 
 export interface StepEvents {
@@ -109,6 +123,8 @@ export interface MakeStateConfig {
   birthConfig?: BirthConfig | null;
   /** Stage 7.6: топология поля. По умолчанию 'torus'. */
   topology?: Topology;
+  /** Stage 8 multi-grid: тип сетки. По умолчанию 'square'. */
+  gridType?: GridType;
 }
 
 export function makeLangtonState(config: MakeStateConfig): SimState {
@@ -119,6 +135,7 @@ export function makeLangtonState(config: MakeStateConfig): SimState {
     damageCapEnabled = true,
     birthConfig = null,
     topology = 'torus',
+    gridType = 'square',
   } = config;
 
   const owner = new Uint8Array(w * h);
@@ -155,6 +172,7 @@ export function makeLangtonState(config: MakeStateConfig): SimState {
     rng: mulberry32(seed),
     seed,
     topology,
+    gridType,
   };
 }
 
@@ -170,7 +188,9 @@ export function makeLangtonState(config: MakeStateConfig): SimState {
  *              Следующий тик попробует в другую сторону.
  * - **void**:  если next pos OOB — муравей умирает.
  */
-function applyMove(a: Ant, dx: number, dy: number, w: number, h: number, topo: Topology): boolean {
+function applyMove(
+  a: Ant, dx: number, dy: number, w: number, h: number, topo: Topology, numDirs: number,
+): boolean {
   const nx = a.x + dx;
   const ny = a.y + dy;
   const oob = nx < 0 || nx >= w || ny < 0 || ny >= h;
@@ -185,7 +205,7 @@ function applyMove(a: Ant, dx: number, dy: number, w: number, h: number, topo: T
       return false;
     case 'bounce':
       if (!oob) { a.x = nx; a.y = ny; }
-      else { a.dir = ((a.dir + 2) & 3) as 0 | 1 | 2 | 3; }
+      else { a.dir = (a.dir + Math.floor(numDirs / 2)) % numDirs; }
       return false;
     case 'void':
       if (oob) { a.dead = true; return true; }
@@ -205,14 +225,15 @@ export function stepLangton(sim: SimState): StepEvents {
   };
 
   // ─── 1. Движение каждого живого муравья ───────────────────────────────────
+  // Stage 8 multi-grid: numDirs + neighbors берутся по gridType.
+  const numDirs = getNumDirs(sim.gridType);
   for (const a of ants) {
     if (a.dead) continue;
     const i = a.y * w + a.x;
     const s = state[i] ?? 0;
     const ch = a.rule[s % a.rule.length] ?? 'R';
-    if (ch === 'R') a.dir = ((a.dir + 1) & 3) as 0 | 1 | 2 | 3;
-    else if (ch === 'L') a.dir = ((a.dir + 3) & 3) as 0 | 1 | 2 | 3;
-    else if (ch === 'U') a.dir = ((a.dir + 2) & 3) as 0 | 1 | 2 | 3;
+    // Apply turn — на любом грид'е R/L/U через applyRuleChar
+    a.dir = applyRuleChar(a.dir, ch, numDirs);
 
     state[i] = (s + 1) % a.rule.length;
     const prevOwner = owner[i];
@@ -222,9 +243,10 @@ export function stepLangton(sim: SimState): StepEvents {
       events.captures.push({ x: a.x, y: a.y, owner: a.owner });
     }
 
-    const dir = LA_DIRS[a.dir]!;
-    // Stage 7.6: движение учитывает topology
-    const died = applyMove(a, dir[0], dir[1], w, h, sim.topology);
+    // Neighbors зависят от gridType и (для tri/hex) от parity клетки.
+    const neighbors = getNeighbors(a.x, a.y, sim.gridType);
+    const offset = neighbors[a.dir % neighbors.length]!;
+    const died = applyMove(a, offset[0], offset[1], w, h, sim.topology, numDirs);
     if (died) {
       events.deaths.push({ id: a.id, owner: a.owner, x: a.x, y: a.y });
     }

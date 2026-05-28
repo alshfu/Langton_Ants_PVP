@@ -21,6 +21,13 @@ export interface User {
 
 export type SpawnPattern = 'radial' | 'corner' | 'random' | 'cluster' | 'center' | 'manual';
 export type Topology = 'torus' | 'wall' | 'bounce' | 'void';
+/**
+ * Stage 8 multi-grid: тип сетки клеток.
+ *   - 'square'    {4,4}  — классическая квадратная сетка
+ *   - 'triangle'  {3,6}  — треугольная (6 треугольников в каждой вершине)
+ *   - 'hexagonal' {6,3}  — шестиугольная (3 шестиугольника в каждой вершине)
+ */
+export type GridType = 'square' | 'triangle' | 'hexagonal';
 export type SandboxMode = 'edit' | 'run' | 'playback';
 
 /** Один муравей в конфигурации (статика — до запуска или в Edit). */
@@ -52,6 +59,8 @@ export interface SandboxConfig {
   width: number;
   height: number;
   topology: Topology;
+  /** Stage 8 multi-grid: тип сетки. Default 'square' для обратной совместимости. */
+  gridType?: GridType;
   bgColor: string;
   showGrid: boolean;
 

@@ -33,6 +33,13 @@ export {
 } from './langton/rules';
 
 export {
+  getNeighbors,
+  getNumDirs,
+  applyRuleChar,
+} from './langton/grid';
+export type { GridType as EngineGridType } from './langton/grid';
+
+export {
   mulberry32,
 } from './langton/prng';
 export type { PRNG } from './langton/prng';
@@ -45,6 +52,7 @@ export type {
   User,
   SpawnPattern,
   Topology as ContractTopology,  // alias чтобы не дублироваться с engine.Topology
+  GridType,                       // Stage 8 multi-grid
   SandboxMode,
   SandboxAntConfig,
   SandboxPlayerConfig,
