@@ -39,10 +39,19 @@ export function Router() {
   const { state, setScreen, sandbox: sx } = useAppState();
   const handledRef = useRef(false);
 
-  // Stage 7: разовая проверка URL при mount
+  // Stage 7-8: разовая проверка URL при mount
   useEffect(() => {
     if (handledRef.current) return;
     handledRef.current = true;
+
+    // Stage 8 Day 7: ?room=abc123 → MatchScreen
+    const params = new URLSearchParams(window.location.search);
+    const roomCode = params.get('room');
+    if (roomCode && roomCode.length > 0) {
+      setScreen('match');
+      return; // не парсим preset/replay одновременно с room
+    }
+
     (async () => {
       const { parseSharedFromCurrentUrl, clearSharedFromUrl } = await import('@lib/urlShare');
       const result = parseSharedFromCurrentUrl();
