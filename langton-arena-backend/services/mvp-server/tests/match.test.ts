@@ -119,9 +119,12 @@ describe('Match — lifecycle', () => {
     const ended = a.sent.find((s) => s.type === 'match_ended') as any;
     expect(ended).toBeDefined();
     expect(ended.result.finished).toBe(true);
-    expect(ended.result.reason).toBe('time_expired');
-    expect(ended.result.winnerId).toBeNull(); // tie
+    // Day 11: time_expired_tie если 0 territory captures, time_expired иначе.
+    expect(ended.result.reason).toMatch(/^time_expired/);
     expect(ended.result.finishedAtTick).toBeGreaterThanOrEqual(5);
+    // Territory breakdown должен быть включён
+    expect(Array.isArray(ended.result.territory)).toBe(true);
+    expect(ended.result.territory.length).toBe(2);
   });
 
   it('stop() prevents дальнейшие ticks', async () => {

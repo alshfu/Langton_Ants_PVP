@@ -92,6 +92,16 @@ export {
   applyDeployAction,
 } from './lib/applyDeploy';
 
+// === Compute territory + winner (Day 11) ====================================
+export {
+  computeTerritory,
+  computeWinnerByTerritory,
+} from './lib/computeTerritory';
+export type {
+  TerritoryEntry,
+  PlayerRef,
+} from './lib/computeTerritory';
+
 // === Deploy validation (shared client + server) =============================
 export {
   canDeploy,

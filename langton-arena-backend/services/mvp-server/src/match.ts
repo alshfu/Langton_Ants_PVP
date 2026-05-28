@@ -14,6 +14,7 @@ import {
   stepLangton,
   canDeploy,
   applyDeployAction,
+  computeWinnerByTerritory,
   buildAntsFromConfig as coreBuildAntsFromConfig,
   buildBirthConfig as coreBuildBirthConfig,
   type SimState,
@@ -145,10 +146,15 @@ export class Match {
       deploys: appliedThisTick,
     });
 
-    // 4. Win condition check
+    // 4. Win condition check.
+    // Day 11: at time_expired — winner = most territory; tie если равные.
     const wc = this.config.winCondition;
     if (wc.kind === 'time' && this.sim.tick >= wc.threshold) {
-      this.finishAndBroadcast(this.makeResult(null, 'time_expired'));
+      const { winnerIdx, territory } = computeWinnerByTerritory(
+        this.sim, this.config.players,
+      );
+      const reason = winnerIdx == null ? 'time_expired_tie' : 'time_expired';
+      this.finishAndBroadcast(this.makeResult(winnerIdx, reason, territory));
     }
   }
 
@@ -181,7 +187,11 @@ export class Match {
     });
   }
 
-  private makeResult(winnerIdx: number | null, reason: string): MatchResult {
+  private makeResult(
+    winnerIdx: number | null,
+    reason: string,
+    territory?: MatchResult['territory'],
+  ): MatchResult {
     const winner = winnerIdx != null ? this.config.players[winnerIdx] : null;
     return {
       finished: true,
@@ -190,6 +200,7 @@ export class Match {
       reason,
       finishedAtTick: this.sim.tick,
       bannerVisible: true,
+      ...(territory ? { territory } : {}),
     };
   }
 

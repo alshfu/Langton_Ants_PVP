@@ -239,6 +239,14 @@ export interface MatchResult {
   finishedAtTick: number;
   /** Видно ли banner поверх канваса. Click Continue → bannerVisible=false. */
   bannerVisible: boolean;
+  /** Stage 8 Day 11: per-player territory breakdown for final banner.
+   *  Sorted by cells desc. cells = захваченные клетки, pct = cells/totalCells. */
+  territory?: Array<{
+    playerId: string;
+    playerName: string;
+    cells: number;
+    pct: number;
+  }>;
 }
 
 export interface SandboxRuntimeState {

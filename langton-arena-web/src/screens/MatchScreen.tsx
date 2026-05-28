@@ -13,7 +13,7 @@ import { Chip } from '@ui/Chip';
 import { WSClient } from '@lib/wsClient';
 import { getOrCreateNickname } from '@lib/nicknames';
 import { LangtonField } from '@components/LangtonField';
-import type { ServerMessage, PlayerInfo, SandboxConfig, Ant, DeployAction, SimState } from '@langton/core';
+import type { ServerMessage, PlayerInfo, SandboxConfig, Ant, DeployAction, SimState, MatchResult } from '@langton/core';
 import { buildAntsFromConfig, applyDeployAction } from '@langton/core';
 import {
   makeGhost, addGhost, reconcileGhosts, rejectGhost, gcStaleGhosts,
@@ -88,6 +88,9 @@ export function MatchScreen() {
   const [pendingGhosts, setPendingGhosts] = useState<Ghost[]>([]);
   // Day 10: rejection toast — короткое уведомление "Deploy rejected".
   const [rejectionToast, setRejectionToast] = useState<string | null>(null);
+  // Day 11: match result + replay URL для финального banner.
+  const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
+  const [replayUrl, setReplayUrl] = useState<string | null>(null);
 
   const me = players.find((p) => p.clientId === clientId);
   const opponent = players.find((p) => p.clientId !== clientId);
@@ -164,6 +167,9 @@ export function MatchScreen() {
             setPhase('playing');
             break;
           case 'match_ended':
+            // Day 11: capture full result + replay URL для FinishedView.
+            setMatchResult(msg.result);
+            setReplayUrl(msg.replayUrl);
             setPhase('finished');
             break;
           case 'error':
@@ -381,10 +387,21 @@ export function MatchScreen() {
             rejectionToast={rejectionToast}
           />
         )}
-        {phase === 'finished' && (
-          <div style={{ color: T.textMuted, fontFamily: 'JetBrains Mono, monospace' }}>
-            {t('match.finishedStub', 'Match finished (Day 11 will render banner here)')}
-          </div>
+        {phase === 'finished' && matchResult && (
+          <FinishedView
+            t={t} T={T}
+            result={matchResult}
+            myPlayer={me}
+            players={players}
+            palette={palette}
+            replayUrl={replayUrl}
+            onBack={goBack}
+            onPlayAgain={() => {
+              // Day 11 MVP: новая матч = back в menu (без autorejoin).
+              // Day 13+ может добавить rejoin / rematch flow.
+              goBack();
+            }}
+          />
         )}
         {phase === 'error' && (
           <ErrorView t={t} T={T} text={errorText} onBack={goBack} />
@@ -670,6 +687,169 @@ function PlayingView({
       }}>
         Click to deploy (you are player #{myPlayerIdx ?? '?'}). Server-driven @ {config.baseTps} TPS.
       </div>
+    </div>
+  );
+}
+
+function FinishedView({
+  t, T, result, myPlayer, players, palette, replayUrl, onBack, onPlayAgain,
+}: SubViewBase & {
+  result: MatchResult;
+  myPlayer: PlayerInfo | undefined;
+  players: PlayerInfo[];
+  palette: string[];
+  replayUrl: string | null;
+  onBack: () => void;
+  onPlayAgain: () => void;
+}) {
+  // Day 11: определяем outcome для текущего игрока.
+  // myPlayer.clientId — наш WS id; matchResult.winnerId — это server-config
+  // playerId (формат 'p0'/'p1'), и оно соответствует room slot index.
+  const myIdx = players.findIndex((p) => p.clientId === myPlayer?.clientId);
+  const winnerIdx = result.winnerId
+    ? Number(result.winnerId.replace(/\D/g, '')) // 'p0' → 0, 'p1' → 1
+    : null;
+  const outcome: 'victory' | 'defeat' | 'draw' =
+    winnerIdx == null ? 'draw'
+    : winnerIdx === myIdx ? 'victory'
+    : 'defeat';
+
+  const titleColor = outcome === 'victory' ? T.success
+    : outcome === 'defeat' ? T.danger
+    : T.warning;
+  const title = outcome === 'victory' ? t('match.victory', 'VICTORY')
+    : outcome === 'defeat' ? t('match.defeat', 'DEFEAT')
+    : t('match.draw', 'DRAW');
+
+  const reasonLabel = (() => {
+    switch (result.reason) {
+      case 'time_expired': return t('match.reason.timeExpired', 'Time expired — territory leader wins');
+      case 'time_expired_tie': return t('match.reason.timeTie', 'Time expired — territory tied');
+      case 'forced': return t('match.reason.disconnect', 'Opponent disconnected');
+      default: return result.reason;
+    }
+  })();
+
+  return (
+    <div data-testid="finished-view" style={{
+      width: '100%', maxWidth: 560,
+      display: 'flex', flexDirection: 'column', gap: 20,
+      alignItems: 'center',
+    }}>
+      <div style={{
+        fontSize: 11, color: T.textMuted, letterSpacing: 2,
+        textTransform: 'uppercase', fontFamily: 'JetBrains Mono, monospace',
+      }}>
+        {t('match.matchEnded', 'Match ended')}
+      </div>
+
+      {/* Большой banner */}
+      <div data-testid="match-outcome" style={{
+        fontSize: 64, fontWeight: 800, color: titleColor,
+        letterSpacing: 4, fontFamily: 'JetBrains Mono, monospace',
+        lineHeight: 1,
+        textShadow: `0 0 24px ${titleColor}88`,
+        animation: 'banner-pop .35s ease-out',
+      }}>
+        {title}
+      </div>
+
+      {/* Winner name (если есть) */}
+      {result.winnerName && outcome !== 'victory' && (
+        <div style={{
+          fontSize: 14, color: T.textPrimary,
+          fontFamily: 'JetBrains Mono, monospace',
+        }}>
+          {t('match.winnerIs', 'Winner:')} <strong style={{ color: titleColor }}>{result.winnerName}</strong>
+        </div>
+      )}
+
+      {/* Reason chip */}
+      <Chip color={titleColor} filled size="sm">{reasonLabel}</Chip>
+
+      {/* Territory breakdown */}
+      {result.territory && result.territory.length > 0 && (
+        <div style={{
+          width: '100%',
+          padding: 12,
+          background: T.bgOverlay,
+          border: `1px solid ${T.border}`,
+          borderRadius: T.radiusSm,
+          display: 'flex', flexDirection: 'column', gap: 8,
+        }}>
+          <div style={{
+            fontSize: 10, color: T.textMuted, textTransform: 'uppercase',
+            letterSpacing: 1, fontFamily: 'JetBrains Mono, monospace',
+          }}>
+            {t('match.finalTerritory', 'Final territory')}
+          </div>
+          {result.territory.map((entry, idx) => {
+            const isMe = idx === myIdx;
+            const isWinner = entry.playerId === result.winnerId;
+            const color = palette[idx] ?? (idx === 0 ? T.accent : T.info);
+            return (
+              <div key={entry.playerId} style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+              }}>
+                <div style={{
+                  width: 14, height: 14, borderRadius: 3,
+                  background: color,
+                }} />
+                <div style={{
+                  flex: 1, fontFamily: 'JetBrains Mono, monospace',
+                  fontSize: 13,
+                  color: isMe ? T.textPrimary : T.textMuted,
+                  fontWeight: isMe ? 600 : 400,
+                }}>
+                  {entry.playerName}
+                  {isMe && <span style={{ marginLeft: 6, color: T.textMuted, fontSize: 10 }}>(you)</span>}
+                  {isWinner && <span style={{ marginLeft: 6, color: titleColor, fontSize: 10 }}>★</span>}
+                </div>
+                <div style={{
+                  fontFamily: 'JetBrains Mono, monospace',
+                  fontSize: 12, color: T.textPrimary,
+                  minWidth: 90, textAlign: 'right',
+                }}>
+                  {(entry.pct * 100).toFixed(1)}% · {entry.cells.toLocaleString()}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Meta */}
+      <div style={{
+        display: 'flex', gap: 8, fontSize: 10,
+        fontFamily: 'JetBrains Mono, monospace', color: T.textMuted,
+      }}>
+        <Chip color={T.textMuted} size="sm">
+          {t('match.finishedAtTick', 'tick')}: {result.finishedAtTick}
+        </Chip>
+        {replayUrl && (
+          <Chip color={T.info} size="sm">
+            <a href={replayUrl} style={{ color: 'inherit', textDecoration: 'none' }}>
+              📼 {t('match.replay', 'Replay')}
+            </a>
+          </Chip>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div style={{ display: 'flex', gap: 12, width: '100%', maxWidth: 360 }}>
+        <Button variant="ghost" size="md" fullWidth onClick={onBack}>
+          ← {t('match.backToMenu', 'Back to menu')}
+        </Button>
+        <Button variant="primary" size="md" fullWidth onClick={onPlayAgain}>
+          {t('match.playAgain', 'Play again')} →
+        </Button>
+      </div>
+
+      <style>{`@keyframes banner-pop {
+        0% { transform: scale(0.6) translateY(-10px); opacity: 0; }
+        60% { transform: scale(1.08) translateY(0); opacity: 1; }
+        100% { transform: scale(1) translateY(0); opacity: 1; }
+      }`}</style>
     </div>
   );
 }
