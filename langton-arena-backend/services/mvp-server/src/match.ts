@@ -15,6 +15,7 @@ import {
   canDeploy,
   applyDeployAction,
   computeWinnerByTerritory,
+  buildReplayFromMatch,
   buildAntsFromConfig as coreBuildAntsFromConfig,
   buildBirthConfig as coreBuildBirthConfig,
   type SimState,
@@ -180,10 +181,19 @@ export class Match {
       this.tickHandle = null;
     }
     this.room.status = 'finished';
+    // Day 12: payload replay inline. matchId уникальный → metadata.id уникален.
+    const replay = buildReplayFromMatch({
+      matchId: this.matchId,
+      config: this.config,
+      deployTimeline: this.deployTimeline,
+      finishedAtTick: result.finishedAtTick,
+      createdAt: Date.now(),
+    });
     this.room.broadcast({
       type: 'match_ended',
       result,
-      replayUrl: `/api/replays/${this.matchId}.json`,
+      replayUrl: `/api/replays/${this.matchId}.json`, // deprecated, kept for backward compat
+      replay,
     });
   }
 

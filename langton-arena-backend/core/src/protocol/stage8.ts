@@ -8,6 +8,7 @@
 // Server возвращает error.locale = клиентский locale из join_room.
 
 import type { SandboxConfig, MatchResult } from '../contract/state.js';
+import type { Replay } from '../contract/replay.js';
 
 // ─── Reused types ────────────────────────────────────────────────────────────
 
@@ -50,7 +51,10 @@ export type ServerMessage =
   | { type: 'match_starting'; countdownMs: number; config: SandboxConfig; seed: number; matchId: string }
   | { type: 'match_started';  matchId: string; startedAt: number; serverEngineVersion: string }
   | { type: 'match_tick';     tick: number; deploys: DeployAction[]; checksum?: string }
-  | { type: 'match_ended';    result: MatchResult; replayUrl: string }
+  | { type: 'match_ended';    result: MatchResult; replayUrl: string;
+      /** Day 12: inline replay payload — client может сразу сохранить
+       *  в local storage без HTTP fetch (mvp-server WebSocket-only). */
+      replay?: Replay }
   | { type: 'pong';           t: number; serverT: number }
   | { type: 'error';          code: string; message: string; locale: string;
       /** Day 10: контекст rejected действия — для client-side prediction

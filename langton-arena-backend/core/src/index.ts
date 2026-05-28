@@ -102,6 +102,14 @@ export type {
   PlayerRef,
 } from './lib/computeTerritory';
 
+// === Build replay from match (Day 12) =======================================
+export {
+  buildReplayFromMatch,
+} from './lib/buildReplay';
+export type {
+  BuildReplayArgs,
+} from './lib/buildReplay';
+
 // === Deploy validation (shared client + server) =============================
 export {
   canDeploy,

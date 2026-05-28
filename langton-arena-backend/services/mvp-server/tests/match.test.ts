@@ -125,6 +125,14 @@ describe('Match — lifecycle', () => {
     // Territory breakdown должен быть включён
     expect(Array.isArray(ended.result.territory)).toBe(true);
     expect(ended.result.territory.length).toBe(2);
+    // Day 12: inline replay payload должен быть включён
+    expect(ended.replay).toBeDefined();
+    expect(ended.replay.version).toBe(1);
+    expect(ended.replay.metadata.id).toContain('pvp-');
+    expect(ended.replay.metadata.durationTicks).toBeGreaterThanOrEqual(5);
+    expect(Array.isArray(ended.replay.deployTimeline)).toBe(true);
+    expect(ended.replay.config).toBeDefined();
+    expect(ended.replay.config.seed).toBe(fast.seed);
   });
 
   it('stop() prevents дальнейшие ticks', async () => {

@@ -13,8 +13,9 @@ import { Chip } from '@ui/Chip';
 import { WSClient } from '@lib/wsClient';
 import { getOrCreateNickname } from '@lib/nicknames';
 import { LangtonField } from '@components/LangtonField';
-import type { ServerMessage, PlayerInfo, SandboxConfig, Ant, DeployAction, SimState, MatchResult } from '@langton/core';
+import type { ServerMessage, PlayerInfo, SandboxConfig, Ant, DeployAction, SimState, MatchResult, Replay } from '@langton/core';
 import { buildAntsFromConfig, applyDeployAction } from '@langton/core';
+import { saveReplay } from '@lib/replayStorage';
 import {
   makeGhost, addGhost, reconcileGhosts, rejectGhost, gcStaleGhosts,
   type Ghost,
@@ -91,6 +92,8 @@ export function MatchScreen() {
   // Day 11: match result + replay URL для финального banner.
   const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
   const [replayUrl, setReplayUrl] = useState<string | null>(null);
+  // Day 12: inline replay payload (PvP), захватываем из match_ended.
+  const [pvpReplay, setPvpReplay] = useState<Replay | null>(null);
 
   const me = players.find((p) => p.clientId === clientId);
   const opponent = players.find((p) => p.clientId !== clientId);
@@ -168,8 +171,10 @@ export function MatchScreen() {
             break;
           case 'match_ended':
             // Day 11: capture full result + replay URL для FinishedView.
+            // Day 12: + inline replay payload для local save.
             setMatchResult(msg.result);
             setReplayUrl(msg.replayUrl);
+            setPvpReplay(msg.replay ?? null);
             setPhase('finished');
             break;
           case 'error':
@@ -395,6 +400,7 @@ export function MatchScreen() {
             players={players}
             palette={palette}
             replayUrl={replayUrl}
+            replay={pvpReplay}
             onBack={goBack}
             onPlayAgain={() => {
               // Day 11 MVP: новая матч = back в menu (без autorejoin).
@@ -692,16 +698,38 @@ function PlayingView({
 }
 
 function FinishedView({
-  t, T, result, myPlayer, players, palette, replayUrl, onBack, onPlayAgain,
+  t, T, result, myPlayer, players, palette, replayUrl, replay, onBack, onPlayAgain,
 }: SubViewBase & {
   result: MatchResult;
   myPlayer: PlayerInfo | undefined;
   players: PlayerInfo[];
   palette: string[];
   replayUrl: string | null;
+  replay: Replay | null;
   onBack: () => void;
   onPlayAgain: () => void;
 }) {
+  // Day 12: replay save state — "Save" / "Saved!" / "Already saved".
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'duplicate' | 'evicted'>('idle');
+  const handleSave = useCallback(() => {
+    if (!replay) return;
+    const { saved, evictedId } = saveReplay(replay);
+    if (!saved) {
+      setSaveStatus('duplicate');
+    } else if (evictedId) {
+      setSaveStatus('evicted');
+    } else {
+      setSaveStatus('saved');
+    }
+  }, [replay]);
+  const handleOpenInSandbox = useCallback(() => {
+    if (!replay) return;
+    // Ensure saved (idempotent: saveReplay returns saved:false если уже есть)
+    saveReplay(replay);
+    // Route в Sandbox с replay query param — Router.tsx читает ?replay=
+    const base = (import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/';
+    window.location.href = `${base}?replay=${encodeURIComponent(replay.metadata.id)}`;
+  }, [replay]);
   // Day 11: определяем outcome для текущего игрока.
   // myPlayer.clientId — наш WS id; matchResult.winnerId — это server-config
   // playerId (формат 'p0'/'p1'), и оно соответствует room slot index.
@@ -822,11 +850,17 @@ function FinishedView({
       <div style={{
         display: 'flex', gap: 8, fontSize: 10,
         fontFamily: 'JetBrains Mono, monospace', color: T.textMuted,
+        flexWrap: 'wrap', justifyContent: 'center',
       }}>
         <Chip color={T.textMuted} size="sm">
           {t('match.finishedAtTick', 'tick')}: {result.finishedAtTick}
         </Chip>
-        {replayUrl && (
+        {replay && (
+          <Chip color={T.info} size="sm">
+            🎬 {replay.metadata.deployCount} {t('match.deploys', 'deploys')}
+          </Chip>
+        )}
+        {replayUrl && !replay && (
           <Chip color={T.info} size="sm">
             <a href={replayUrl} style={{ color: 'inherit', textDecoration: 'none' }}>
               📼 {t('match.replay', 'Replay')}
@@ -834,6 +868,36 @@ function FinishedView({
           </Chip>
         )}
       </div>
+
+      {/* Day 12: Save replay row — две кнопки + status feedback */}
+      {replay && (
+        <div data-testid="replay-actions" style={{
+          width: '100%', maxWidth: 360,
+          display: 'flex', flexDirection: 'column', gap: 8,
+        }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button
+              variant={saveStatus === 'saved' || saveStatus === 'evicted' ? 'ghost' : 'primary'}
+              size="sm" fullWidth onClick={handleSave}
+              disabled={saveStatus === 'saved' || saveStatus === 'evicted'}
+            >
+              {saveStatus === 'idle' && `💾 ${t('match.saveReplay', 'Save replay')}`}
+              {saveStatus === 'saved' && `✓ ${t('match.savedReplay', 'Saved!')}`}
+              {saveStatus === 'duplicate' && `✓ ${t('match.alreadySaved', 'Already saved')}`}
+              {saveStatus === 'evicted' && `✓ ${t('match.savedEvicted', 'Saved (FIFO evict)')}`}
+            </Button>
+            <Button variant="ghost" size="sm" fullWidth onClick={handleOpenInSandbox}>
+              🔬 {t('match.openInSandbox', 'Open in Sandbox')}
+            </Button>
+          </div>
+          <div style={{
+            fontSize: 10, color: T.textMuted, fontFamily: 'JetBrains Mono, monospace',
+            textAlign: 'center',
+          }}>
+            {t('match.replayHint', 'Replay stored locally — Sandbox → Replays to play back.')}
+          </div>
+        </div>
+      )}
 
       {/* Actions */}
       <div style={{ display: 'flex', gap: 12, width: '100%', maxWidth: 360 }}>
