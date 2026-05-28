@@ -1203,6 +1203,7 @@ export function SandboxScreen() {
               hpEnabled={cfg.hpEnabled}
               damageCapEnabled={cfg.damageCapEnabled}
               topology={cfg.topology}
+              gridType={cfg.gridType ?? 'square'}
               birthConfig={birthConfig}
               selectedAntId={rt.selectedAntId}
               editMode={rt.mode === 'edit'}

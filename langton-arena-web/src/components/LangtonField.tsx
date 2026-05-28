@@ -19,8 +19,9 @@ import {
   type BirthConfig,
   type StepEvents,
 } from '@core/langton/engine';
-import { LA_DIRS } from '@core/langton/rules';
+import { getNeighbors } from '@langton/core';
 import { drawShape } from './antShapes';
+import { drawCell, getCellCenter, getCanvasSize, pixelToCell } from './gridRender';
 import { getSprite, skinIdForPlayer } from '@lib/spriteLoader';
 import { heatmapColor, type HeatmapType } from '@lib/heatmapColors';
 import type { HeatmapData } from '@state/LiveStatsContext';
@@ -29,6 +30,8 @@ export interface LangtonFieldProps {
   w: number;
   h: number;
   cellSize: number;
+  /** Stage 8 multi-grid: тип сетки клеток. Default 'square'. */
+  gridType?: import('@langton/core').EngineGridType;
   ants: Array<Omit<Ant, 'maxHp' | 'lastDamageTick' | 'bornAt'> & { maxHp?: number }>;
   palette: string[];
   /** Формы по индексу игрока (для skinPack='shape'). */
@@ -97,7 +100,7 @@ export interface LangtonFieldHandle {
 }
 
 export const LangtonField = forwardRef<LangtonFieldHandle, LangtonFieldProps>(function LangtonField({
-  w, h, cellSize, ants, palette,
+  w, h, cellSize, gridType = 'square', ants, palette,
   shapes, skinPack = 'shape',
   tps = 12, paused = false,
   glow = true, showTrail = true, showHpDots = false,
@@ -123,7 +126,7 @@ export const LangtonField = forwardRef<LangtonFieldHandle, LangtonFieldProps>(fu
   const trailRef = useRef<Float32Array | null>(null);
   const [, force] = useState(0);
 
-  // (Re)build sim при смене размера/seed/состава ants
+  // (Re)build sim при смене размера/seed/состава ants/gridType
   useEffect(() => {
     simRef.current = makeLangtonState({
       w, h, ants, seed,
@@ -131,11 +134,12 @@ export const LangtonField = forwardRef<LangtonFieldHandle, LangtonFieldProps>(fu
       hpEnabled, damageCapEnabled,
       birthConfig,
       topology,
+      gridType,
     });
     trailRef.current = new Float32Array(w * h);
     force((n) => n + 1);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [w, h, seed, JSON.stringify(ants)]);
+  }, [w, h, seed, JSON.stringify(ants), gridType]);
 
   // Stage 7.6: live update topology — переключение режима ощущается мгновенно
   // без reset симуляции (отдельный effect, не в deps re-build).
@@ -230,7 +234,7 @@ export const LangtonField = forwardRef<LangtonFieldHandle, LangtonFieldProps>(fu
       }
 
       draw(canvasRef.current, sim, trail, palette, {
-        cellSize, bg, antScale, glow, showTrail, showHpDots,
+        cellSize, gridType, bg, antScale, glow, showTrail, showHpDots,
         showDirectionArrows, showGrid, selectedAntId, editMode,
         showCellState, shapes, skinPack,
         heatmapMode, heatmapOpacity,
@@ -251,11 +255,12 @@ export const LangtonField = forwardRef<LangtonFieldHandle, LangtonFieldProps>(fu
     const cssX = e.clientX - rect.left;
     const cssY = e.clientY - rect.top;
     if (cssX < 0 || cssY < 0 || cssX >= rect.width || cssY >= rect.height) return null;
-    const cellX = Math.floor((cssX / rect.width) * w);
-    const cellY = Math.floor((cssY / rect.height) * h);
-    if (cellX < 0 || cellX >= w || cellY < 0 || cellY >= h) return null;
-    return { x: cellX, y: cellY };
-  }, [w, h]);
+    // Convert CSS pixels → cell coords. Для tri/hex используется специальный maths.
+    const { cssW, cssH } = getCanvasSize(w, h, cellSize, gridType);
+    const pxOnCanvas = (cssX / rect.width) * cssW;
+    const pyOnCanvas = (cssY / rect.height) * cssH;
+    return pixelToCell(pxOnCanvas, pyOnCanvas, cellSize, gridType, w, h);
+  }, [w, h, cellSize, gridType]);
 
   const handleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const cell = cellFromEvent(e);
@@ -352,6 +357,7 @@ export const LangtonField = forwardRef<LangtonFieldHandle, LangtonFieldProps>(fu
 
 interface DrawOpts {
   cellSize: number;
+  gridType: import('@langton/core').EngineGridType;
   bg: string;
   antScale: number;
   glow: boolean;
@@ -381,15 +387,14 @@ function draw(
   if (!canvas || !sim || !trail) return;
   const { w, h } = sim;
   const {
-    cellSize, bg, antScale, glow, showTrail, showHpDots,
+    cellSize, gridType, bg, antScale, glow, showTrail, showHpDots,
     showDirectionArrows, showGrid, showCellState,
     selectedAntId, editMode, shapes, skinPack,
     heatmapMode, heatmapOpacity, heatmapData,
     deployHover,
   } = opts;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
-  const cssW = w * cellSize;
-  const cssH = h * cellSize;
+  const { cssW, cssH } = getCanvasSize(w, h, cellSize, gridType);
   if (canvas.width !== cssW * dpr || canvas.height !== cssH * dpr) {
     canvas.width = cssW * dpr;
     canvas.height = cssH * dpr;
@@ -404,7 +409,7 @@ function draw(
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, cssW, cssH);
 
-  // 2. Owner-grid
+  // 2. Owner-grid (Stage 8 multi-grid: drawCell учитывает gridType)
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const ownerVal = sim.owner[y * w + x]!;
@@ -412,14 +417,14 @@ function draw(
       const colorIdx = ownerVal === 255 ? -1 : ownerVal - 1;
       const baseColor = colorIdx === -1 ? '#8E8E93' : (palette[colorIdx] ?? '#888');
       ctx.fillStyle = baseColor + '40';
-      ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+      drawCell(ctx, x, y, cellSize, gridType);
 
       if (showTrail) {
         const trailVal = trail[y * w + x]!;
         if (trailVal > 0.01) {
           ctx.globalAlpha = Math.min(1, trailVal);
           ctx.fillStyle = baseColor;
-          ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+          drawCell(ctx, x, y, cellSize, gridType);
           ctx.globalAlpha = 1;
         }
       }
@@ -436,13 +441,13 @@ function draw(
         } else {
           ctx.fillStyle = 'rgba(0, 0, 0, .12)';
         }
-        ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+        drawCell(ctx, x, y, cellSize, gridType);
       }
     }
   }
 
-  // 3. Сетка (опционально)
-  if (showGrid && cellSize >= 6) {
+  // 3. Сетка (опционально) — только для square. На tri/hex линии не корректны.
+  if (showGrid && cellSize >= 6 && gridType === 'square') {
     ctx.strokeStyle = 'rgba(255,255,255,.05)';
     ctx.lineWidth = 0.5;
     ctx.beginPath();
@@ -458,7 +463,8 @@ function draw(
   }
 
   // 4. Edit mode highlight: пунктирная сетка ярче (для удобства попадания)
-  if (editMode && cellSize >= 8) {
+  // — только для square
+  if (editMode && cellSize >= 8 && gridType === 'square') {
     ctx.strokeStyle = 'rgba(255,214,10,.08)';
     ctx.lineWidth = 0.5;
     ctx.beginPath();
@@ -516,8 +522,7 @@ function draw(
   const r = Math.max(1.5, (cellSize * antScale) / 2);
   for (const a of sim.ants) {
     if (a.dead) continue;
-    const cx = a.x * cellSize + cellSize / 2;
-    const cy = a.y * cellSize + cellSize / 2;
+    const [cx, cy] = getCellCenter(a.x, a.y, cellSize, gridType);
     const colorIdx = a.owner === 255 ? -1 : a.owner;
     const color = colorIdx === -1 ? '#8E8E93' : (palette[colorIdx] ?? '#fff');
 
@@ -590,11 +595,16 @@ function draw(
       }
     }
 
-    // Стрелка направления
+    // Стрелка направления (Stage 8: pixel offset через neighbor cell)
     if (showDirectionArrows && cellSize >= 6) {
-      const [dx, dy] = LA_DIRS[a.dir]!;
-      const ax = cx + dx * r * 1.4;
-      const ay = cy + dy * r * 1.4;
+      const neighbors = getNeighbors(a.x, a.y, gridType);
+      const off = neighbors[a.dir % neighbors.length]!;
+      const [nbx, nby] = getCellCenter(a.x + off[0], a.y + off[1], cellSize, gridType);
+      const vx = nbx - cx;
+      const vy = nby - cy;
+      const vlen = Math.hypot(vx, vy) || 1;
+      const ax = cx + (vx / vlen) * r * 1.4;
+      const ay = cy + (vy / vlen) * r * 1.4;
       ctx.beginPath();
       ctx.moveTo(cx, cy);
       ctx.lineTo(ax, ay);
@@ -602,14 +612,16 @@ function draw(
       ctx.lineWidth = Math.max(1, cellSize * 0.08);
       ctx.lineCap = 'round';
       ctx.stroke();
-      // Наконечник
-      const perpX = -dy * r * 0.4;
-      const perpY = dx * r * 0.4;
+      // Наконечник (pixel vector vx/vy, нормализованный, для tri/hex тоже работает)
+      const ux = vx / vlen;
+      const uy = vy / vlen;
+      const perpX = -uy * r * 0.4;
+      const perpY = ux * r * 0.4;
       ctx.beginPath();
       ctx.moveTo(ax, ay);
-      ctx.lineTo(ax - dx * r * 0.4 + perpX, ay - dy * r * 0.4 + perpY);
+      ctx.lineTo(ax - ux * r * 0.4 + perpX, ay - uy * r * 0.4 + perpY);
       ctx.moveTo(ax, ay);
-      ctx.lineTo(ax - dx * r * 0.4 - perpX, ay - dy * r * 0.4 - perpY);
+      ctx.lineTo(ax - ux * r * 0.4 - perpX, ay - uy * r * 0.4 - perpY);
       ctx.stroke();
     }
 

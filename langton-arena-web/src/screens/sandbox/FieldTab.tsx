@@ -2,7 +2,7 @@
 
 import { useTheme } from '@theme/ThemeProvider';
 import { useAppState } from '@state/AppStateProvider';
-import type { Topology } from '@core/contract/state';
+import type { Topology, GridType } from '@core/contract/state';
 import { Slider } from '@ui/Slider';
 import { Toggle } from '@ui/Toggle';
 import { Section, Field } from './_shared';
@@ -12,6 +12,12 @@ const TOPOLOGY_OPTIONS: Array<{ value: Topology; label: string; hint: string }> 
   { value: 'wall',   label: 'Wall',   hint: 'stop at edge' },
   { value: 'bounce', label: 'Bounce', hint: 'reflect off edge' },
   { value: 'void',   label: 'Void',   hint: 'fall off — die' },
+];
+
+const GRID_OPTIONS: Array<{ value: GridType; label: string; hint: string }> = [
+  { value: 'square',     label: 'Square {4,4}',     hint: '4 neighbors · ±90° turns' },
+  { value: 'triangle',   label: 'Triangle {3,6}',   hint: '3 neighbors · ±120° turns' },
+  { value: 'hexagonal',  label: 'Hexagonal {6,3}',  hint: '6 neighbors · ±60° turns' },
 ];
 
 const PRESET_BG_COLORS = [
@@ -58,6 +64,43 @@ export function FieldTab() {
         {inRun && (
           <div style={{ fontSize: 10, color: T.warning, fontFamily: 'JetBrains Mono, monospace' }}>
             ! Reset to apply size changes
+          </div>
+        )}
+      </Section>
+
+      <Section title="Grid type {Schläfli}">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {GRID_OPTIONS.map((opt) => {
+            const active = (cfg.gridType ?? 'square') === opt.value;
+            return (
+              <button
+                key={opt.value}
+                onClick={() => sx.patchSandbox({ gridType: opt.value })}
+                style={{
+                  display: 'flex', justifyContent: 'space-between',
+                  padding: '8px 10px',
+                  background: active ? T.accentMuted : T.bgOverlay,
+                  border: `1px solid ${active ? T.accent : T.border}`,
+                  borderRadius: T.radiusSm, cursor: 'pointer',
+                  fontSize: 12, color: T.textPrimary,
+                }}
+              >
+                <span style={{ fontWeight: 600 }}>{opt.label}</span>
+                <span style={{ fontSize: 10, color: T.textMuted, fontFamily: 'JetBrains Mono, monospace' }}>
+                  {opt.hint}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {(cfg.gridType ?? 'square') !== 'square' && (
+          <div style={{
+            marginTop: 6, padding: 6,
+            fontSize: 10, color: T.textMuted,
+            background: T.bgOverlay, borderRadius: T.radiusSm,
+            fontFamily: 'JetBrains Mono, monospace', lineHeight: 1.4,
+          }}>
+            ℹ Reset (↺) после смены grid type — sim перестраивается с новыми соседями.
           </div>
         )}
       </Section>
