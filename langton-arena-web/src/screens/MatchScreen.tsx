@@ -3,7 +3,7 @@
 // Stage 8 Day 7: PvP match screen — connecting + lobby phases.
 // Day 8 добавит countdown + playing. Day 11 — finished banner.
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useTheme } from '@theme/ThemeProvider';
 import { useT } from '@i18n/I18nProvider';
 import { useAppState } from '@state/AppStateProvider';
@@ -12,7 +12,10 @@ import { Eyebrow } from '@ui/Eyebrow';
 import { Chip } from '@ui/Chip';
 import { WSClient } from '@lib/wsClient';
 import { getOrCreateNickname } from '@lib/nicknames';
-import type { ServerMessage, PlayerInfo } from '@langton/core';
+import { LangtonField } from '@components/LangtonField';
+import type { ServerMessage, PlayerInfo, SandboxConfig, Ant } from '@langton/core';
+import { buildAntsFromConfig } from '@langton/core';
+import { PLAYER_PALETTE } from '@core/shared/constants';
 
 type MatchPhase = 'connecting' | 'lobby' | 'countdown' | 'playing' | 'finished' | 'error';
 
@@ -60,8 +63,45 @@ export function MatchScreen() {
   const nicknameRef = useRef(getOrCreateNickname());
   const wsRef = useRef<WSClient | null>(null);
 
+  // Stage 8 Day 8: match config + seed захватываются из match_starting,
+  // используются в playing phase для инициализации engine.
+  const [matchConfig, setMatchConfig] = useState<SandboxConfig | null>(null);
+  const [matchId, setMatchId] = useState<string | null>(null);
+  const [countdownEndAt, setCountdownEndAt] = useState<number | null>(null);
+  const [countdownRemaining, setCountdownRemaining] = useState<number>(0);
+
   const me = players.find((p) => p.clientId === clientId);
   const opponent = players.find((p) => p.clientId !== clientId);
+
+  // Stage 8 Day 8: countdown timer — обновляем remaining раз в 100мс
+  useEffect(() => {
+    if (phase !== 'countdown' || !countdownEndAt) return;
+    const id = setInterval(() => {
+      const left = Math.max(0, countdownEndAt - Date.now());
+      setCountdownRemaining(left);
+    }, 100);
+    return () => clearInterval(id);
+  }, [phase, countdownEndAt]);
+
+  // Stage 8 Day 8: engineAnts + palette + shapes для LangtonField в playing phase
+  const engineAnts: Ant[] = useMemo(
+    () => (matchConfig ? buildAntsFromConfig(matchConfig) : []),
+    [matchConfig],
+  );
+  const palette = useMemo(
+    () => (matchConfig?.players ?? []).map((p) => p.color),
+    [matchConfig],
+  );
+  const shapes = useMemo(
+    () => (matchConfig?.players ?? []).map(
+      (_, i) => PLAYER_PALETTE[i % PLAYER_PALETTE.length]!.shape,
+    ),
+    [matchConfig],
+  );
+  // Cell size: тот же расчёт что в SandboxScreen
+  const cellSize = matchConfig
+    ? Math.max(1, Math.min(14, Math.floor(800 / Math.max(matchConfig.width, matchConfig.height))))
+    : 8;
 
   // ─── WS connection ────────────────────────────────────────────────────────
 
@@ -83,9 +123,15 @@ export function MatchScreen() {
             setPlayers(msg.players);
             break;
           case 'match_starting':
+            // Day 8: захватываем config + seed для playing phase.
+            // Config приходит с server-applied seed (cfg.seed === msg.seed).
+            setMatchConfig({ ...msg.config, seed: msg.seed });
+            setMatchId(msg.matchId);
+            setCountdownEndAt(Date.now() + msg.countdownMs);
             setPhase('countdown');
             break;
           case 'match_started':
+            setMatchId(msg.matchId);
             setPhase('playing');
             break;
           case 'match_ended':
@@ -222,14 +268,19 @@ export function MatchScreen() {
           />
         )}
         {phase === 'countdown' && (
-          <div style={{ fontSize: 96, fontWeight: 700, color: T.accent, fontFamily: 'JetBrains Mono, monospace' }}>
-            3
-          </div>
+          <CountdownView t={t} T={T} remainingMs={countdownRemaining} />
         )}
-        {phase === 'playing' && (
-          <div style={{ color: T.textMuted, fontFamily: 'JetBrains Mono, monospace' }}>
-            {t('match.playingStub', 'Playing… (Day 8 will render the field here)')}
-          </div>
+        {phase === 'playing' && matchConfig && (
+          <PlayingView
+            t={t} T={T}
+            config={matchConfig}
+            seed={matchConfig.seed}
+            matchId={matchId}
+            ants={engineAnts}
+            palette={palette}
+            shapes={shapes}
+            cellSize={cellSize}
+          />
         )}
         {phase === 'finished' && (
           <div style={{ color: T.textMuted, fontFamily: 'JetBrains Mono, monospace' }}>
@@ -385,6 +436,107 @@ function PlayerSlot({
             : t('match.statusNotReady', 'not ready')}
         </Chip>
       )}
+    </div>
+  );
+}
+
+function CountdownView({
+  t, T, remainingMs,
+}: SubViewBase & { remainingMs: number }) {
+  // Округляем до целых секунд для отображения (3 / 2 / 1 / 0).
+  const sec = Math.max(0, Math.ceil(remainingMs / 1000));
+  const display = sec === 0 ? 'GO!' : String(sec);
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', gap: 16,
+      alignItems: 'center',
+    }}>
+      <div style={{
+        fontSize: 11, color: T.textMuted, letterSpacing: 2,
+        textTransform: 'uppercase', fontFamily: 'JetBrains Mono, monospace',
+      }}>
+        {t('match.matchStartingIn', 'Match starting in')}
+      </div>
+      <div
+        key={display}
+        style={{
+          fontSize: sec === 0 ? 72 : 128,
+          fontWeight: 700,
+          color: sec === 0 ? T.success : T.accent,
+          fontFamily: 'JetBrains Mono, monospace',
+          lineHeight: 1,
+          animation: 'pop .25s ease-out',
+        }}
+      >
+        {display}
+      </div>
+      <style>{`@keyframes pop { 0% { transform: scale(0.6); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }`}</style>
+    </div>
+  );
+}
+
+function PlayingView({
+  T, config, seed, matchId, ants, palette, shapes, cellSize,
+}: SubViewBase & {
+  config: SandboxConfig;
+  seed: number;
+  matchId: string | null;
+  ants: Ant[];
+  palette: string[];
+  shapes: import('../components/antShapes').ShapeId[];
+  cellSize: number;
+}) {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', gap: 12,
+      alignItems: 'center',
+    }}>
+      <div style={{
+        display: 'flex', gap: 8, fontSize: 10,
+        color: T.textMuted, fontFamily: 'JetBrains Mono, monospace',
+      }}>
+        <Chip color={T.info} size="sm">
+          {config.width}×{config.height} {config.gridType ?? 'square'}
+        </Chip>
+        <Chip color={T.accent} size="sm">seed: {seed}</Chip>
+        {matchId && <Chip color={T.textMuted} size="sm">{matchId.slice(0, 18)}…</Chip>}
+      </div>
+      <div style={{
+        border: `2px solid ${T.success}`,
+        borderRadius: T.radiusSm,
+        padding: 2,
+        boxShadow: `0 0 24px ${T.success}55`,
+      }}>
+        <LangtonField
+          w={config.width}
+          h={config.height}
+          cellSize={cellSize}
+          gridType={config.gridType ?? 'square'}
+          ants={ants}
+          palette={palette}
+          shapes={shapes}
+          tps={config.baseTps * config.speedMultiplier}
+          paused={false}
+          glow={config.showGlow}
+          showTrail={config.showTrails}
+          showHpDots={config.showHpDots}
+          showDirectionArrows={config.showDirectionArrows}
+          showGrid={config.showGrid}
+          showCellState={config.showCellState}
+          antScale={config.antScale}
+          bg={config.bgColor}
+          seed={seed}
+          collisionCooldownTicks={config.collisionCooldownTicks}
+          hpEnabled={config.hpEnabled}
+          damageCapEnabled={config.damageCapEnabled}
+          topology={config.topology}
+        />
+      </div>
+      <div style={{
+        fontSize: 10, color: T.textMuted, fontFamily: 'JetBrains Mono, monospace',
+      }}>
+        Day 8 — engine на client. Day 9 переключит на server-driven ticks.
+      </div>
     </div>
   );
 }

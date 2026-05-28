@@ -14,6 +14,8 @@ import {
   stepLangton,
   canDeploy,
   LA_RULES,
+  buildAntsFromConfig as coreBuildAntsFromConfig,
+  buildBirthConfig as coreBuildBirthConfig,
   type SimState,
   type Ant,
   type BirthConfig,
@@ -227,52 +229,16 @@ export class Match {
   }
 }
 
-// ─── Helpers (exported для тестов) ───────────────────────────────────────────
+// ─── Helpers (re-export для тестов backward-compat) ──────────────────────────
+// Stage 8 Day 8: реализации переехали в @langton/core. Эти re-export'ы
+// сохраняют обратную совместимость для уже написанных тестов.
 
 export function buildAntsFromConfig(config: SandboxConfig): Ant[] {
-  const list: Ant[] = [];
-  config.players.forEach((p, pi) => {
-    const playerRule = LA_RULES[p.ruleId] ?? LA_RULES.classic!;
-    p.ants.forEach((a) => {
-      const rule = a.ruleOverride ? (LA_RULES[a.ruleOverride] ?? playerRule) : playerRule;
-      list.push({
-        id: a.id,
-        owner: pi,
-        x: a.x,
-        y: a.y,
-        dir: a.dir,
-        rule,
-        hp: p.startHp,
-        maxHp: p.startHp,
-        lastDamageTick: -9999,
-        bornAt: 0,
-      });
-    });
-  });
-  return list;
+  return coreBuildAntsFromConfig(config);
 }
 
 export function buildBirthConfig(c: SandboxConfig): BirthConfig | null {
-  if (!c.birthEnabled) return null;
-  return {
-    enabled: true,
-    minNeighbors:     c.birthMinNeighbors,
-    cooldownTicks:    c.birthCooldownTicks,
-    maxAntsPerPlayer: c.maxAntsPerPlayer,
-    hybridChance:     c.hybridChance,
-    wildChance:       c.wildBirthChance,
-    unlimited:        c.unlimitedAnts,
-    mutation: c.mutation.enabled ? {
-      haloEnabled:       c.mutation.haloEnabled,
-      haloMinNeighbors:  c.mutation.haloMinNeighbors,
-      mirrorEnabled:     c.mutation.mirrorEnabled,
-      mirrorRadius:      c.mutation.mirrorRadius,
-      pathEnabled:       c.mutation.pathEnabled,
-      pathStraightTicks: c.mutation.pathStraightTicks,
-    } : undefined,
-    reserveMode: c.reserveMode,
-    // onReserve — Day 5 deploy mode
-  };
+  return coreBuildBirthConfig(c);
 }
 
 /** Метаданные для match_started message. */

@@ -81,6 +81,12 @@ export {
   REPLAY_FORMAT_VERSION,
 } from './contract/replay';
 
+// === Build engine state (shared client + server) ============================
+export {
+  buildAntsFromConfig,
+  buildBirthConfig,
+} from './lib/buildEngineState';
+
 // === Deploy validation (shared client + server) =============================
 export {
   canDeploy,
