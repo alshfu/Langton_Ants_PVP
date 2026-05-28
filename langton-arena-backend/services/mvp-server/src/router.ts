@@ -45,7 +45,7 @@ function dispatch(conn: Connection, msg: ClientMessage, ctx: ServerContext): voi
     case 'join_room':       return handleJoinRoom(conn, msg, ctx);
     case 'leave_room':      return handleLeaveRoom(conn, ctx);
     case 'set_ready':       return handleSetReady(conn, msg, ctx);
-    case 'deploy':          return handleDeploy(conn);
+    case 'deploy':          return handleDeploy(conn, msg, ctx);
     case 'ping':            return handlePing(conn, msg);
     default: {
       const _exhaustive: never = msg;
@@ -134,13 +134,40 @@ function handleSetReady(
   }
 }
 
-function handleDeploy(conn: Connection): void {
+function handleDeploy(
+  conn: Connection,
+  msg: Extract<ClientMessage, { type: 'deploy' }>,
+  ctx: ServerContext,
+): void {
   if (!conn.roomCode) {
     conn.sendError(ERROR_CODES.NOT_IN_ROOM);
     return;
   }
-  // Day 5: canDeploy validation + queue. Day 4 — match_tick без deploys.
-  conn.sendError(ERROR_CODES.MATCH_NOT_ACTIVE);
+  const room = ctx.rooms.get(conn.roomCode);
+  if (!room) {
+    conn.sendError(ERROR_CODES.NOT_IN_ROOM);
+    return;
+  }
+  if (!room.activeMatch || room.status !== 'playing') {
+    conn.sendError(ERROR_CODES.MATCH_NOT_ACTIVE);
+    return;
+  }
+  // Найти индекс игрока в config.players по позиции в room
+  const playerIdx = room.players.indexOf(conn);
+  if (playerIdx < 0) {
+    conn.sendError(ERROR_CODES.NOT_IN_ROOM);
+    return;
+  }
+
+  const v = room.activeMatch.validateAndQueueDeploy(playerIdx, msg.x, msg.y, msg.tick);
+  if (!v.ok) {
+    if (v.reason === 'Input too old') {
+      conn.sendError(ERROR_CODES.INPUT_TOO_OLD);
+    } else {
+      conn.sendError(ERROR_CODES.INVALID_DEPLOY);
+    }
+  }
+  // На успех — нет ack. Клиент увидит deploy в next match_tick.
 }
 
 function handlePing(

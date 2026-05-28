@@ -72,3 +72,13 @@ export type {
 export {
   REPLAY_FORMAT_VERSION,
 } from './contract/replay';
+
+// === Deploy validation (shared client + server) =============================
+export {
+  canDeploy,
+} from './lib/deployValidation';
+export type {
+  DeployRule,
+  DeployConfig,
+  DeployValidation,
+} from './lib/deployValidation';

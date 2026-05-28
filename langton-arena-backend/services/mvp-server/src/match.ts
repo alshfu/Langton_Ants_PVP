@@ -12,12 +12,14 @@
 import {
   makeLangtonState,
   stepLangton,
+  canDeploy,
   LA_RULES,
   type SimState,
   type Ant,
   type BirthConfig,
   type SandboxConfig,
   type MatchResult,
+  type DeployValidation,
 } from '@langton/core';
 import type { Room } from './room.js';
 import type { DeployAction } from './messages.js';
@@ -34,13 +36,15 @@ export class Match {
   readonly startedAt: number;
   readonly config: SandboxConfig;
   readonly room: Room;
-  /** Полный timeline всех deploys — для replay сохранения (Day 12). */
+  /** Полный timeline всех applied deploys — для replay сохранения (Day 12). */
   readonly deployTimeline: DeployAction[] = [];
 
   private sim: SimState;
   private tickHandle: NodeJS.Timeout | null = null;
   private finished = false;
   private readonly tickIntervalMs: number;
+  /** Queue: deploys ожидающие применения на следующем tick'е. */
+  private pendingDeploys: DeployAction[] = [];
 
   constructor(room: Room, config: SandboxConfig, matchId: string, opts: MatchOptions = {}) {
     this.room = room;
@@ -50,6 +54,38 @@ export class Match {
     this.startedAt = Date.now();
     this.tickIntervalMs = opts.tickIntervalMs ?? 100;
     this.sim = this.buildSim();
+  }
+
+  /**
+   * Validate + queue deploy от клиента. Returns DeployValidation для caller'а.
+   * Stage 8 Day 5: используется в router handleDeploy.
+   *
+   * Алгоритм:
+   *   1. Проверка что матч активен
+   *   2. INPUT_TOO_OLD если tick < current (защита от лагов / abuse)
+   *   3. canDeploy через @langton/core (bounds + occupancy + rule)
+   *   4. Push в pendingDeploys — будет применён на next tick
+   */
+  validateAndQueueDeploy(playerIdx: number, x: number, y: number, clientTick: number): DeployValidation {
+    if (this.finished) {
+      return { ok: false, reason: 'Match not active' };
+    }
+    // Server is source of truth — игнорируем deploys из прошлого
+    if (clientTick < this.sim.tick - 5) {
+      return { ok: false, reason: 'Input too old' };
+    }
+    const v = canDeploy(x, y, playerIdx, this.sim, {
+      deployRule: this.config.deployRule,
+      deployRadius: this.config.deployRadius,
+    });
+    if (!v.ok) return v;
+    // Server применит этот deploy на NEXT tick (sim.tick + 1)
+    this.pendingDeploys.push({
+      tick: this.sim.tick + 1,
+      playerIdx,
+      x, y,
+    });
+    return { ok: true };
   }
 
   /** Start tick loop. */
@@ -83,21 +119,69 @@ export class Match {
   private tick(): void {
     if (this.finished) return;
 
-    // Step engine. Day 5: добавится deploys из replayPlaybackDeploy.
+    // 1. Step engine
     stepLangton(this.sim);
 
-    // Broadcast match_tick. Day 5: deploys array заполнится при наличии inputs.
+    // 2. Apply queued deploys для этого тика
+    // pendingDeploys были помечены tick = sim.tick (next после validateAndQueue)
+    const appliedThisTick: DeployAction[] = [];
+    for (const dep of this.pendingDeploys) {
+      if (dep.tick === this.sim.tick) {
+        if (this.applyDeploy(dep)) {
+          appliedThisTick.push(dep);
+          this.deployTimeline.push(dep);
+        }
+      }
+    }
+    // Очищаем applied + просроченные (< current tick)
+    this.pendingDeploys = this.pendingDeploys.filter((d) => d.tick > this.sim.tick);
+
+    // 3. Broadcast match_tick (с deploys этого тика для client-side prediction)
     this.room.broadcast({
       type: 'match_tick',
       tick: this.sim.tick,
-      deploys: [],
+      deploys: appliedThisTick,
     });
 
-    // Win condition check — Day 4 только time-based.
+    // 4. Win condition check
     const wc = this.config.winCondition;
     if (wc.kind === 'time' && this.sim.tick >= wc.threshold) {
       this.finishAndBroadcast(this.makeResult(null, 'time_expired'));
     }
+  }
+
+  /**
+   * Применить deploy на field. Адаптировано из frontend SandboxScreen.onDeployClick.
+   * Возвращает true если применился (False = race condition, клетка занялась).
+   */
+  private applyDeploy(action: DeployAction): boolean {
+    // Финальная проверка перед apply (race-safety)
+    const v = canDeploy(action.x, action.y, action.playerIdx, this.sim, {
+      deployRule: this.config.deployRule,
+      deployRadius: this.config.deployRadius,
+    });
+    if (!v.ok) return false;
+
+    // Create new ant. Stage 8 Day 5: server создаёт без reserve mode
+    // (Stage 6 reserve mode — для sandbox; в PvP MVP игроки кликают
+    // прямо на канвас, ant появляется на месте).
+    const player = this.config.players[action.playerIdx];
+    if (!player) return false;
+    const ruleStr = LA_RULES[player.ruleId] ?? LA_RULES.classic!;
+    const ant: Ant = {
+      id: `${player.id}_deploy_${this.sim.tick}_${action.x}_${action.y}`,
+      owner: action.playerIdx,
+      x: action.x,
+      y: action.y,
+      dir: 0,
+      rule: ruleStr,
+      hp: player.startHp,
+      maxHp: player.startHp,
+      lastDamageTick: this.sim.tick - 9999,
+      bornAt: this.sim.tick,
+    };
+    this.sim.ants.push(ant);
+    return true;
   }
 
   private finishAndBroadcast(result: MatchResult): void {

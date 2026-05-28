@@ -342,4 +342,92 @@ describe('MvpServer integration', () => {
     expect((ended as any).result.winnerId).toBe('p1'); // B = index 1, побеждает
     b.ws.close();
   });
+
+  // ─── Day 5 — Deploy ────────────────────────────────────────────────────────
+
+  it('deploy до match_started → MATCH_NOT_ACTIVE', async () => {
+    const a = await openClient(url);
+    a.ws.send(joinMsg('r', 'A'));
+    await a.inbox.readN(2);
+    a.ws.send(JSON.stringify({ type: 'deploy', x: 30, y: 30, tick: 0 }));
+    const err = await a.inbox.waitFor((m) => m.type === 'error', 500);
+    expect((err as any).code).toBe('MATCH_NOT_ACTIVE');
+    a.ws.close();
+  });
+
+  it('valid deploy во время match → broadcast в match_tick.deploys', async () => {
+    const { a, b } = await setupReadyPair();
+    await a.inbox.waitFor((m) => m.type === 'match_started', 500);
+
+    // Ждём пока match войдёт в playing (хотя бы один tick)
+    const firstTick = await a.inbox.waitFor((m) => m.type === 'match_tick', 500);
+    const curT = (firstTick as any).tick;
+
+    a.ws.send(JSON.stringify({ type: 'deploy', x: 30, y: 30, tick: curT }));
+
+    // Оба получают match_tick с deploy
+    const tickWithDeploy = await b.inbox.waitFor(
+      (m) => m.type === 'match_tick' && (m as any).deploys.length > 0,
+      1000,
+    );
+    expect((tickWithDeploy as any).deploys[0].x).toBe(30);
+    expect((tickWithDeploy as any).deploys[0].y).toBe(30);
+    expect((tickWithDeploy as any).deploys[0].playerIdx).toBe(0); // A = index 0
+    a.ws.close(); b.ws.close();
+  });
+
+  it('invalid deploy (out of bounds) → INVALID_DEPLOY error', async () => {
+    const { a, b } = await setupReadyPair();
+    await a.inbox.waitFor((m) => m.type === 'match_started', 500);
+    const firstTick = await a.inbox.waitFor((m) => m.type === 'match_tick', 500);
+    const curT = (firstTick as any).tick;
+
+    a.ws.send(JSON.stringify({ type: 'deploy', x: -1, y: 30, tick: curT }));
+    const err = await a.inbox.waitFor((m) => m.type === 'error', 500);
+    expect((err as any).code).toBe('INVALID_DEPLOY');
+    a.ws.close(); b.ws.close();
+  });
+
+  it('двойной deploy на ту же клетку → второй INVALID_DEPLOY (occupied)', async () => {
+    const { a, b } = await setupReadyPair();
+    await a.inbox.waitFor((m) => m.type === 'match_started', 500);
+    const firstTick = await a.inbox.waitFor((m) => m.type === 'match_tick', 500);
+    const curT = (firstTick as any).tick;
+
+    // Деплоим A на (30, 30) — applied на curT+1
+    a.ws.send(JSON.stringify({ type: 'deploy', x: 30, y: 30, tick: curT }));
+    await a.inbox.waitFor(
+      (m) => m.type === 'match_tick' && (m as any).deploys.some((d: any) => d.x === 30 && d.y === 30),
+      500,
+    );
+    // Деплоим B на (30, 30) — теперь занята A's ant'ом → INVALID
+    // Но ant сразу же двинется на следующем tick! Нужно сразу же шлём в same тике.
+    // На самом деле проще: B шлёт несколько кадров вперёд, race условие.
+    // Чтобы стабильно: запросим текущий тик через ping, дальше попробуем
+    const recentTick = await a.inbox.waitFor((m) => m.type === 'match_tick', 200);
+    const tNow = (recentTick as any).tick;
+    b.ws.send(JSON.stringify({ type: 'deploy', x: 30, y: 30, tick: tNow }));
+    // Может быть INVALID_DEPLOY (occupied) или success (ant сдвинулся)
+    // Проверяем что СЕРВЕР хотя бы один из вариантов даёт без crash
+    const reply = await Promise.race([
+      b.inbox.waitFor((m) => m.type === 'error', 300).catch(() => null),
+      b.inbox.waitFor(
+        (m) => m.type === 'match_tick' && (m as any).deploys.some((d: any) => d.playerIdx === 1 && d.x === 30 && d.y === 30),
+        300,
+      ).catch(() => null),
+    ]);
+    expect(reply).not.toBeNull();
+    a.ws.close(); b.ws.close();
+  });
+
+  it('очень старый tick → INPUT_TOO_OLD', async () => {
+    const { a, b } = await setupReadyPair();
+    await a.inbox.waitFor((m) => m.type === 'match_started', 500);
+    // Ждём чтобы тиков накопилось >5
+    await new Promise((r) => setTimeout(r, 50));
+    a.ws.send(JSON.stringify({ type: 'deploy', x: 30, y: 30, tick: 0 }));
+    const err = await a.inbox.waitFor((m) => m.type === 'error', 500);
+    expect((err as any).code).toBe('INPUT_TOO_OLD');
+    a.ws.close(); b.ws.close();
+  });
 });

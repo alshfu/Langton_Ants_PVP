@@ -52,7 +52,7 @@ import { LiveStatsProvider } from '@state/LiveStatsContext';
 import { computeCellCountsByOwner, computeAliveAntsByOwner } from '@lib/computeStats';
 import { computeAllHighlights } from '@lib/computeHighlights';
 import { computeMatchResult } from '@lib/computeMatchResult';
-import { canDeploy } from '@lib/deployValidation';
+import { canDeploy } from '@langton/core';
 import { MatchBanner } from '@components/MatchBanner';
 
 // ─── Stage 7.4: Media controls subcomponents ─────────────────────────────────

@@ -1,11 +1,13 @@
-// src/lib/deployValidation.ts
+// core/src/lib/deployValidation.ts
 //
 // Валидация deploy-клика: можно ли выпустить муравья в клетку (x, y)
 // для игрока playerIdx согласно cfg.deployRule.
 //
-// Чистая функция — легко тестируется.
+// Чистая функция — легко тестируется. Day 5 Stage 8: переехала из frontend
+// в @langton/core — теперь используется и client (visual hint), и server
+// (canonical validation в mvp-server).
 
-import type { SimState } from '@core/langton/engine';
+import type { SimState } from '../langton/engine.js';
 
 export type DeployRule = 'anywhere' | 'own_territory' | 'near_alive';
 

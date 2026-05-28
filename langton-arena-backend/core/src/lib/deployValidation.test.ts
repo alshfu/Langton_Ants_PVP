@@ -1,8 +1,8 @@
-// src/lib/deployValidation.test.ts
+// core/src/lib/deployValidation.test.ts
 
 import { describe, it, expect } from 'vitest';
 import { canDeploy } from './deployValidation';
-import type { SimState } from '@core/langton/engine';
+import type { SimState } from '../langton/engine';
 
 function makeSim(overrides: Partial<SimState> = {}): SimState {
   const w = 20, h = 20;
