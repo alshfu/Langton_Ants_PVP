@@ -161,10 +161,12 @@ function handleDeploy(
 
   const v = room.activeMatch.validateAndQueueDeploy(playerIdx, msg.x, msg.y, msg.tick);
   if (!v.ok) {
+    // Day 10: context = координаты rejected deploy, для client prediction rollback.
+    const ctx2 = { x: msg.x, y: msg.y, tick: msg.tick };
     if (v.reason === 'Input too old') {
-      conn.sendError(ERROR_CODES.INPUT_TOO_OLD);
+      conn.sendError(ERROR_CODES.INPUT_TOO_OLD, ctx2);
     } else {
-      conn.sendError(ERROR_CODES.INVALID_DEPLOY);
+      conn.sendError(ERROR_CODES.INVALID_DEPLOY, ctx2);
     }
   }
   // На успех — нет ack. Клиент увидит deploy в next match_tick.

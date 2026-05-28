@@ -385,6 +385,11 @@ describe('MvpServer integration', () => {
     a.ws.send(JSON.stringify({ type: 'deploy', x: -1, y: 30, tick: curT }));
     const err = await a.inbox.waitFor((m) => m.type === 'error', 500);
     expect((err as any).code).toBe('INVALID_DEPLOY');
+    // Day 10: error должен содержать context для client prediction rollback.
+    expect((err as any).context).toBeDefined();
+    expect((err as any).context.x).toBe(-1);
+    expect((err as any).context.y).toBe(30);
+    expect((err as any).context.tick).toBe(curT);
     a.ws.close(); b.ws.close();
   });
 

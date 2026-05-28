@@ -82,6 +82,10 @@ export interface LangtonFieldProps {
   onDeployClick?: (x: number, y: number) => void;
   /** Проверка валидности клетки для подсветки (зелёный/красный hover). */
   isDeployValid?: (x: number, y: number) => boolean;
+  /** Stage 8 Day 10: ghost overlays — predicted (но ещё не подтверждённые)
+   *  deploys. Render как пульсирующие translucent квадраты с цветом игрока,
+   *  поверх клеток но под ant'ами. Сорочка для optimistic UI. */
+  ghostDeploys?: Array<{ x: number; y: number; playerIdx: number }>;
 
   stepSignal?: number;
   onEvents?: (ev: StepEvents, tick: number) => void;
@@ -117,7 +121,7 @@ export const LangtonField = forwardRef<LangtonFieldHandle, LangtonFieldProps>(fu
   selectedAntId = null,
   editMode = false,
   onCellClick, onCellContextMenu, onCellWheel,
-  deployMode = false, onDeployClick, isDeployValid,
+  deployMode = false, onDeployClick, isDeployValid, ghostDeploys,
   stepSignal = 0,
   onEvents, onTick,
 }, ref) {
@@ -240,12 +244,13 @@ export const LangtonField = forwardRef<LangtonFieldHandle, LangtonFieldProps>(fu
         heatmapMode, heatmapOpacity,
         heatmapData: getHeatmapData?.() ?? null,
         deployHover,
+        ghostDeploys,
       });
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tps, paused, cellSize, JSON.stringify(palette), JSON.stringify(shapes), skinPack, bg, antScale, glow, showTrail, showHpDots, showDirectionArrows, showGrid, showCellState, selectedAntId, editMode, heatmapMode, heatmapOpacity, deployMode, hoveredCell]);
+  }, [tps, paused, cellSize, JSON.stringify(palette), JSON.stringify(shapes), skinPack, bg, antScale, glow, showTrail, showHpDots, showDirectionArrows, showGrid, showCellState, selectedAntId, editMode, heatmapMode, heatmapOpacity, deployMode, hoveredCell, JSON.stringify(ghostDeploys)]);
 
   // ─── Mouse interactions ────────────────────────────────────────────────────
   const cellFromEvent = useCallback((e: { clientX: number; clientY: number }): { x: number; y: number } | null => {
@@ -375,6 +380,8 @@ interface DrawOpts {
   heatmapData: HeatmapData | null;
   /** Stage 6: hover-cell + validity flag для подсветки. */
   deployHover: { x: number; y: number; valid: boolean } | null;
+  /** Stage 8 Day 10: optimistic ghost deploys (pending server confirm). */
+  ghostDeploys?: Array<{ x: number; y: number; playerIdx: number }>;
 }
 
 function draw(
@@ -391,7 +398,7 @@ function draw(
     showDirectionArrows, showGrid, showCellState,
     selectedAntId, editMode, shapes, skinPack,
     heatmapMode, heatmapOpacity, heatmapData,
-    deployHover,
+    deployHover, ghostDeploys,
   } = opts;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const { cssW, cssH } = getCanvasSize(w, h, cellSize, gridType);
@@ -515,6 +522,32 @@ function draw(
     ctx.strokeStyle = color;
     ctx.lineWidth = Math.max(1.5, cellSize * 0.1);
     ctx.strokeRect(hx + 0.5, hy + 0.5, cellSize - 1, cellSize - 1);
+  }
+
+  // 4.8. Stage 8 Day 10: ghost deploys — optimistic UI placeholders.
+  // Пульсирующий контур в цвете игрока, прозрачная заливка. Render между
+  // hover и ant'ами чтобы реальный ant перекрывал ghost после confirm.
+  if (ghostDeploys && ghostDeploys.length > 0) {
+    const pulse = 0.55 + 0.25 * Math.sin(Date.now() / 180); // 0.30..0.80
+    for (const g of ghostDeploys) {
+      const [gcx, gcy] = getCellCenter(g.x, g.y, cellSize, gridType);
+      const color = palette[g.playerIdx] ?? '#fff';
+      const half = cellSize / 2;
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = color + '40';
+      ctx.fillRect(gcx - half, gcy - half, cellSize, cellSize);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(1.5, cellSize * 0.12);
+      ctx.setLineDash([Math.max(2, cellSize * 0.25), Math.max(2, cellSize * 0.15)]);
+      ctx.strokeRect(
+        gcx - half + 0.5,
+        gcy - half + 0.5,
+        cellSize - 1,
+        cellSize - 1,
+      );
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    }
   }
 
   // 5. Муравьи

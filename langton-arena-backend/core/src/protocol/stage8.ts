@@ -52,7 +52,11 @@ export type ServerMessage =
   | { type: 'match_tick';     tick: number; deploys: DeployAction[]; checksum?: string }
   | { type: 'match_ended';    result: MatchResult; replayUrl: string }
   | { type: 'pong';           t: number; serverT: number }
-  | { type: 'error';          code: string; message: string; locale: string };
+  | { type: 'error';          code: string; message: string; locale: string;
+      /** Day 10: контекст rejected действия — для client-side prediction
+       *  reconciliation. Опционально, заполняется только когда есть смысл
+       *  (INVALID_DEPLOY/INPUT_TOO_OLD → координаты + tick). */
+      context?: { x?: number; y?: number; tick?: number } };
 
 export type ServerMessageType = ServerMessage['type'];
 

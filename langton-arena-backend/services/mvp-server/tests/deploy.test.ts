@@ -112,10 +112,13 @@ describe('Match — deploy applied on next tick', () => {
     m.stop();
 
     expect(m.simState.ants.length).toBeGreaterThan(antsBefore);
-    // ant на правильной позиции
-    const newAnt = m.simState.ants.find((a) => a.x === 30 && a.y === 30);
+    // ant — самый поздний bornAt (новый deploy). Не по (30,30) т.к. он уже
+    // мог сделать несколько шагов за 30ms wait (race-tolerant matching).
+    const sorted = [...m.simState.ants].sort((a, b) => b.bornAt - a.bornAt);
+    const newAnt = sorted[0];
     expect(newAnt).toBeDefined();
     expect(newAnt!.owner).toBe(0);
+    expect(newAnt!.id).toContain('_deploy_');
   });
 
   it('deployTimeline накапливает applied deploys', async () => {

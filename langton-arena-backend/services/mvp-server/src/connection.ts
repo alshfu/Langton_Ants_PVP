@@ -51,13 +51,19 @@ export class Connection {
     }
   }
 
-  /** Отправить error с локализованным message. Безопасно по shape. */
-  sendError(code: ErrorCode): void {
+  /**
+   * Отправить error с локализованным message. Безопасно по shape.
+   * Day 10: опциональный context для client-side prediction reconciliation.
+   * Когда передан — client сможет сопоставить error с конкретным pending
+   * deploy (через x/y) и rollback его ghost.
+   */
+  sendError(code: ErrorCode, context?: { x?: number; y?: number; tick?: number }): void {
     this.send({
       type: 'error',
       code,
       message: t(this.locale, code),
       locale: this.locale,
+      ...(context ? { context } : {}),
     });
   }
 

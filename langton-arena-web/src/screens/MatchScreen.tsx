@@ -15,6 +15,10 @@ import { getOrCreateNickname } from '@lib/nicknames';
 import { LangtonField } from '@components/LangtonField';
 import type { ServerMessage, PlayerInfo, SandboxConfig, Ant, DeployAction, SimState } from '@langton/core';
 import { buildAntsFromConfig, applyDeployAction } from '@langton/core';
+import {
+  makeGhost, addGhost, reconcileGhosts, rejectGhost, gcStaleGhosts,
+  type Ghost,
+} from '@lib/clientPrediction';
 import { PLAYER_PALETTE } from '@core/shared/constants';
 
 type MatchPhase = 'connecting' | 'lobby' | 'countdown' | 'playing' | 'finished' | 'error';
@@ -79,6 +83,11 @@ export function MatchScreen() {
   const currentTickRef = useRef(0);
   // myPlayerIdx — индекс в room.players (0 или 1). Set on room_joined.
   const myPlayerIdxRef = useRef<number | null>(null);
+  // Stage 8 Day 10: client-side prediction.
+  // Helper'ы — pure functions в @lib/clientPrediction (тестируются отдельно).
+  const [pendingGhosts, setPendingGhosts] = useState<Ghost[]>([]);
+  // Day 10: rejection toast — короткое уведомление "Deploy rejected".
+  const [rejectionToast, setRejectionToast] = useState<string | null>(null);
 
   const me = players.find((p) => p.clientId === clientId);
   const opponent = players.find((p) => p.clientId !== clientId);
@@ -158,6 +167,25 @@ export function MatchScreen() {
             setPhase('finished');
             break;
           case 'error':
+            // Day 10: deploy rejection → откатить matching ghost + toast.
+            if (msg.code === 'INVALID_DEPLOY' || msg.code === 'INPUT_TOO_OLD') {
+              let didRollback = false;
+              setPendingGhosts((prev) => {
+                const { ghosts: next, removed } = rejectGhost(
+                  prev, myPlayerIdxRef.current, msg.context,
+                );
+                if (removed) didRollback = true;
+                return next;
+              });
+              // Toast показываем даже если rollback не сработал — пользователь
+              // должен знать что server отверг его действие.
+              setRejectionToast(msg.message);
+              setTimeout(() => setRejectionToast(null), 2200);
+              if (didRollback) break;
+              // Если rollback не сработал (no context / no matching) — fallthrough
+              // в default branch чтобы поведение для non-deploy errors не сломать.
+            }
+            // Non-deploy errors: keep existing behaviour (banner / fatal).
             setErrorText(msg.message);
             if (msg.code === 'ROOM_FULL' || msg.code === 'ROOM_NOT_FOUND') {
               setPhase('error');
@@ -174,6 +202,11 @@ export function MatchScreen() {
             }
             currentTickRef.current = msg.tick;
             setStepSignal(msg.tick);
+            // Day 10: reconciliation + GC через pure helpers.
+            setPendingGhosts((prev) => {
+              const reconciled = reconcileGhosts(prev, msg.deploys);
+              return gcStaleGhosts(reconciled, msg.tick);
+            });
             break;
           }
           case 'pong':
@@ -239,15 +272,16 @@ export function MatchScreen() {
   }, [setScreen]);
 
   // Stage 8 Day 9: click на канвас → send deploy сообщение.
-  // Server валидирует через canDeploy, отвечает match_tick.deploys (echo).
+  // Stage 8 Day 10: + optimistic ghost для instant визуальной обратной связи.
+  // Reconciliation: ghost удаляется когда server echo'ит deploy в match_tick
+  // (см. case 'match_tick') или присылает error('INVALID_DEPLOY').
   const handleDeployClick = useCallback((x: number, y: number) => {
     const idx = myPlayerIdxRef.current;
     if (idx == null || !wsRef.current) return;
-    wsRef.current.send({
-      type: 'deploy',
-      tick: currentTickRef.current,
-      x, y,
-    });
+    const tick = currentTickRef.current;
+    wsRef.current.send({ type: 'deploy', tick, x, y });
+    // Optimistic ghost (instant visual feedback ~RTT/2 раньше реального ant).
+    setPendingGhosts((prev) => addGhost(prev, makeGhost(x, y, idx, tick)));
   }, []);
 
   // Stage 8 Day 9: server-driven onTick callback.
@@ -343,6 +377,8 @@ export function MatchScreen() {
             onTick={handleEngineTick}
             onDeployClick={handleDeployClick}
             myPlayerIdx={myPlayerIdxRef.current}
+            ghostDeploys={pendingGhosts}
+            rejectionToast={rejectionToast}
           />
         )}
         {phase === 'finished' && (
@@ -541,6 +577,7 @@ function CountdownView({
 function PlayingView({
   T, config, seed, matchId, ants, palette, shapes, cellSize,
   stepSignal, onTick, onDeployClick, myPlayerIdx,
+  ghostDeploys, rejectionToast,
 }: SubViewBase & {
   config: SandboxConfig;
   seed: number;
@@ -553,6 +590,8 @@ function PlayingView({
   onTick: (sim: SimState) => void;
   onDeployClick: (x: number, y: number) => void;
   myPlayerIdx: number | null;
+  ghostDeploys: Array<{ x: number; y: number; playerIdx: number }>;
+  rejectionToast: string | null;
 }) {
   return (
     <div style={{
@@ -568,8 +607,28 @@ function PlayingView({
         </Chip>
         <Chip color={T.accent} size="sm">seed: {seed}</Chip>
         <Chip color={T.success} size="sm">tick: {stepSignal}</Chip>
+        {ghostDeploys.length > 0 && (
+          <Chip color={T.warning} size="sm">pending: {ghostDeploys.length}</Chip>
+        )}
         {matchId && <Chip color={T.textMuted} size="sm">{matchId.slice(0, 18)}…</Chip>}
       </div>
+      {rejectionToast && (
+        <div role="alert" data-testid="rejection-toast" style={{
+          position: 'absolute', top: 80, right: 24,
+          padding: '10px 14px',
+          background: T.danger,
+          color: '#fff',
+          fontSize: 12,
+          fontFamily: 'JetBrains Mono, monospace',
+          borderRadius: T.radiusSm,
+          boxShadow: `0 4px 16px ${T.danger}66`,
+          animation: 'toast-in .25s ease-out',
+          zIndex: 50,
+        }}>
+          ⚠ {rejectionToast}
+          <style>{`@keyframes toast-in { from { transform: translateY(-8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }`}</style>
+        </div>
+      )}
       <div style={{
         border: `2px solid ${T.success}`,
         borderRadius: T.radiusSm,
@@ -590,6 +649,7 @@ function PlayingView({
           onTick={onTick}
           deployMode={myPlayerIdx != null}
           onDeployClick={onDeployClick}
+          ghostDeploys={ghostDeploys}
           glow={config.showGlow}
           showTrail={config.showTrails}
           showHpDots={config.showHpDots}
