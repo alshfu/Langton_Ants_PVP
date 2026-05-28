@@ -83,6 +83,9 @@ describe('MvpServer integration', () => {
       logger: () => { /* silent */ },
       matchCountdownMs: 30,
       matchTickIntervalMs: 5,
+      // Day 13: short grace для disconnect-forfeit тестов. Resume happy-path
+      // тесты используют отдельный server instance с graceDisconnectMs: 5_000.
+      graceDisconnectMs: 50,
     });
     const { host, port } = await server.start();
     url = `ws://${host}:${port}`;
@@ -434,5 +437,176 @@ describe('MvpServer integration', () => {
     const err = await a.inbox.waitFor((m) => m.type === 'error', 500);
     expect((err as any).code).toBe('INPUT_TOO_OLD');
     a.ws.close(); b.ws.close();
+  });
+});
+
+// ─── Day 13 — Reconnect with resume token ────────────────────────────────────
+
+describe('MvpServer · Day 13 reconnect', () => {
+  let server: MvpServer;
+  let url: string;
+
+  beforeEach(async () => {
+    // Longer grace (500ms) — даём время на reconnect happy path тестам.
+    // Forfeit-after-grace тесты используют короткий fastServer ниже.
+    server = new MvpServer({
+      port: 0,
+      logger: () => { /* silent */ },
+      matchCountdownMs: 30,
+      matchTickIntervalMs: 5,
+      graceDisconnectMs: 500,
+    });
+    const { host, port } = await server.start();
+    url = `ws://${host}:${port}`;
+  });
+  afterEach(async () => { await server.stop(); });
+
+  const joinMsg = (room: string, nick: string, opts: { locale?: string; resumeToken?: string } = {}) =>
+    JSON.stringify({
+      type: 'join_room',
+      roomCode: room,
+      nickname: nick,
+      locale: opts.locale ?? 'en',
+      ...(opts.resumeToken ? { resumeToken: opts.resumeToken } : {}),
+    });
+
+  /** Setup: 2 player'а, оба ready, match_started получено. */
+  async function setupActiveMatch(roomCode = 'r') {
+    const a = await openClient(url);
+    const b = await openClient(url);
+    a.ws.send(joinMsg(roomCode, 'Alice'));
+    b.ws.send(joinMsg(roomCode, 'Bob'));
+    const joinedA = await a.inbox.waitFor((m) => m.type === 'room_joined');
+    const joinedB = await b.inbox.waitFor((m) => m.type === 'room_joined');
+    await a.inbox.waitFor((m) => m.type === 'room_updated' && (m as any).players.length === 2);
+    a.ws.send(JSON.stringify({ type: 'set_ready', ready: true }));
+    b.ws.send(JSON.stringify({ type: 'set_ready', ready: true }));
+    await a.inbox.waitFor((m) => m.type === 'match_started', 500);
+    return {
+      a, b,
+      tokenA: (joinedA as any).resumeToken as string,
+      tokenB: (joinedB as any).resumeToken as string,
+    };
+  }
+
+  it('room_joined содержит resumeToken (32 hex)', async () => {
+    const a = await openClient(url);
+    a.ws.send(joinMsg('r', 'Alice'));
+    const joined = await a.inbox.waitFor((m) => m.type === 'room_joined');
+    expect((joined as any).resumeToken).toMatch(/^[0-9a-f]{32}$/);
+    expect((joined as any).resumed).toBeUndefined();
+    a.ws.close();
+  });
+
+  it('reconnect с valid token → resumed:true + match_resume_state', async () => {
+    const { a, b, tokenA } = await setupActiveMatch();
+    // Пусть тиков накопится — будет интересный tick value
+    await a.inbox.waitFor((m) => m.type === 'match_tick', 500);
+    // A disconnects mid-match
+    a.ws.close();
+    await new Promise((r) => setTimeout(r, 50));
+    // A reconnects с тем же token
+    const a2 = await openClient(url);
+    a2.ws.send(joinMsg('r', 'Alice', { resumeToken: tokenA }));
+    const rejoined = await a2.inbox.waitFor((m) => m.type === 'room_joined');
+    expect((rejoined as any).resumed).toBe(true);
+    expect((rejoined as any).clientId).toBeDefined();
+    // Получаем match_resume_state с polynomial data
+    const resume = await a2.inbox.waitFor((m) => m.type === 'match_resume_state', 500);
+    expect((resume as any).matchId).toBeDefined();
+    expect((resume as any).tick).toBeGreaterThan(0);
+    expect((resume as any).config).toBeDefined();
+    expect((resume as any).seed).toBeDefined();
+    expect(Array.isArray((resume as any).deployTimeline)).toBe(true);
+    a2.ws.close(); b.ws.close();
+  });
+
+  it('reconnect с invalid token → normal join (no resumed flag)', async () => {
+    const a = await openClient(url);
+    a.ws.send(joinMsg('r', 'Alice', { resumeToken: 'deadbeef'.repeat(4) }));
+    const joined = await a.inbox.waitFor((m) => m.type === 'room_joined');
+    expect((joined as any).resumed).toBeUndefined();
+    a.ws.close();
+  });
+
+  it('opponent видит disconnected flag в room_updated', async () => {
+    const { a, b } = await setupActiveMatch();
+    a.ws.close();
+    const update = await b.inbox.waitFor(
+      (m) => m.type === 'room_updated'
+             && (m as any).players.some((p: any) => p.disconnected === true),
+      500,
+    );
+    const ghostPlayer = (update as any).players.find((p: any) => p.disconnected);
+    expect(ghostPlayer).toBeDefined();
+    expect(ghostPlayer.nickname).toBe('Alice');
+    b.ws.close();
+  });
+
+  it('reconnect → opponent видит disconnected=false снова', async () => {
+    const { a, b, tokenA } = await setupActiveMatch();
+    a.ws.close();
+    await b.inbox.waitFor(
+      (m) => m.type === 'room_updated'
+             && (m as any).players.some((p: any) => p.disconnected),
+      500,
+    );
+    const a2 = await openClient(url);
+    a2.ws.send(joinMsg('r', 'Alice', { resumeToken: tokenA }));
+    await a2.inbox.waitFor((m) => m.type === 'room_joined');
+    const update = await b.inbox.waitFor(
+      (m) => m.type === 'room_updated'
+             && (m as any).players.every((p: any) => !p.disconnected),
+      500,
+    );
+    expect((update as any).players.length).toBe(2);
+    a2.ws.close(); b.ws.close();
+  });
+
+  it('grace expire → forfeit (oppo побеждает)', async () => {
+    // Override grace в server instance невозможно после start, поэтому
+    // используем отдельный fast server здесь.
+    const fastServer = new MvpServer({
+      port: 0,
+      logger: () => { /* silent */ },
+      matchCountdownMs: 30,
+      matchTickIntervalMs: 5,
+      graceDisconnectMs: 50,
+    });
+    const { host, port } = await fastServer.start();
+    const fastUrl = `ws://${host}:${port}`;
+
+    const a = await openClient(fastUrl);
+    const b = await openClient(fastUrl);
+    a.ws.send(JSON.stringify({ type: 'join_room', roomCode: 'r', nickname: 'A', locale: 'en' }));
+    b.ws.send(JSON.stringify({ type: 'join_room', roomCode: 'r', nickname: 'B', locale: 'en' }));
+    await a.inbox.waitFor((m) => m.type === 'room_updated' && (m as any).players.length === 2);
+    a.ws.send(JSON.stringify({ type: 'set_ready', ready: true }));
+    b.ws.send(JSON.stringify({ type: 'set_ready', ready: true }));
+    await b.inbox.waitFor((m) => m.type === 'match_started', 500);
+    a.ws.close();
+    // Wait > graceDisconnectMs → forfeit
+    const ended = await b.inbox.waitFor((m) => m.type === 'match_ended', 1000);
+    expect((ended as any).result.reason).toBe('opponent_disconnected');
+    // B (idx=1) победил т.к. A disconnected
+    expect((ended as any).result.winnerId).toBe('p1');
+    b.ws.close();
+    await fastServer.stop();
+  });
+
+  it('disconnect in lobby → immediate (no grace, opponent stays)', async () => {
+    // В lobby phase grace не применяется — leaveCurrentRoom immediate.
+    const a = await openClient(url);
+    const b = await openClient(url);
+    a.ws.send(joinMsg('r', 'A'));
+    b.ws.send(joinMsg('r', 'B'));
+    await a.inbox.waitFor((m) => m.type === 'room_updated' && (m as any).players.length === 2);
+    a.ws.close();
+    const update = await b.inbox.waitFor(
+      (m) => m.type === 'room_updated' && (m as any).players.length === 1,
+      500,
+    );
+    expect((update as any).players[0].nickname).toBe('B');
+    b.ws.close();
   });
 });

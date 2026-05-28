@@ -180,6 +180,9 @@ export class Match {
       clearInterval(this.tickHandle);
       this.tickHandle = null;
     }
+    // Day 13: матч закончен — grace timers больше не нужны.
+    for (const timer of this.room.graceTimers.values()) clearTimeout(timer);
+    this.room.graceTimers.clear();
     this.room.status = 'finished';
     // Day 12: payload replay inline. matchId уникальный → metadata.id уникален.
     const replay = buildReplayFromMatch({

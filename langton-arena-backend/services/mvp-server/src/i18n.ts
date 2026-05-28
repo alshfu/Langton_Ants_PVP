@@ -34,6 +34,7 @@ export const MESSAGES: MessagesByLocale = {
     INPUT_TOO_OLD:           'Input arrived too late — ignored',
     FIELD_TOO_LARGE_FOR_PVP: 'PvP supports up to 200×200 fields, full-size sandbox available offline',
     ENGINE_VERSION_MISMATCH: 'Client engine version differs from server — please refresh',
+    RESUME_TOKEN_EXPIRED:    'Reconnect window expired — match was forfeited',
   },
   ru: {
     MALFORMED_MESSAGE:       'Некорректное сообщение — невалидный JSON или нет поля type',
@@ -48,6 +49,7 @@ export const MESSAGES: MessagesByLocale = {
     INPUT_TOO_OLD:           'Действие пришло слишком поздно — игнорируется',
     FIELD_TOO_LARGE_FOR_PVP: 'PvP поддерживает поля до 200×200, полный размер доступен в офлайн-песочнице',
     ENGINE_VERSION_MISMATCH: 'Версия клиента отличается от сервера — обнови страницу',
+    RESUME_TOKEN_EXPIRED:    'Окно для переподключения истекло — матч засчитан как поражение',
   },
   uk: {
     MALFORMED_MESSAGE:       'Некоректне повідомлення — невалідний JSON або немає поля type',
@@ -62,6 +64,7 @@ export const MESSAGES: MessagesByLocale = {
     INPUT_TOO_OLD:           'Дія прийшла надто пізно — ігнорується',
     FIELD_TOO_LARGE_FOR_PVP: 'PvP підтримує поля до 200×200, повний розмір доступний у офлайн-пісочниці',
     ENGINE_VERSION_MISMATCH: 'Версія клієнта відрізняється від сервера — онови сторінку',
+    RESUME_TOKEN_EXPIRED:    'Вікно для перепідключення вичерпано — матч зараховано як поразку',
   },
   de: {
     MALFORMED_MESSAGE:       'Fehlerhafte Nachricht — ungültiges JSON oder fehlendes type-Feld',
@@ -76,6 +79,7 @@ export const MESSAGES: MessagesByLocale = {
     INPUT_TOO_OLD:           'Eingabe kam zu spät — ignoriert',
     FIELD_TOO_LARGE_FOR_PVP: 'PvP unterstützt Felder bis 200×200, volle Größe nur im Offline-Sandbox',
     ENGINE_VERSION_MISMATCH: 'Client-Engine unterscheidet sich vom Server — bitte aktualisieren',
+    RESUME_TOKEN_EXPIRED:    'Wiederverbindungs-Zeitfenster abgelaufen — Match verloren',
   },
   es: {
     MALFORMED_MESSAGE:       'Mensaje mal formado — JSON inválido o falta campo type',
@@ -90,6 +94,7 @@ export const MESSAGES: MessagesByLocale = {
     INPUT_TOO_OLD:           'Acción demasiado tardía — ignorada',
     FIELD_TOO_LARGE_FOR_PVP: 'PvP soporta campos hasta 200×200, tamaño completo en sandbox offline',
     ENGINE_VERSION_MISMATCH: 'Versión del cliente difiere del servidor — actualiza la página',
+    RESUME_TOKEN_EXPIRED:    'Ventana de reconexión expirada — partida perdida',
   },
   fr: {
     MALFORMED_MESSAGE:       'Message malformé — JSON invalide ou champ type manquant',
@@ -104,6 +109,7 @@ export const MESSAGES: MessagesByLocale = {
     INPUT_TOO_OLD:           'Action arrivée trop tard — ignorée',
     FIELD_TOO_LARGE_FOR_PVP: 'PvP supporte des champs jusqu’à 200×200, taille complète en sandbox hors-ligne',
     ENGINE_VERSION_MISMATCH: 'Version du client diffère du serveur — rafraîchis la page',
+    RESUME_TOKEN_EXPIRED:    'Fenêtre de reconnexion expirée — match perdu',
   },
   zh: {
     MALFORMED_MESSAGE:       '消息格式错误 — JSON 无效或缺少 type 字段',
@@ -118,6 +124,7 @@ export const MESSAGES: MessagesByLocale = {
     INPUT_TOO_OLD:           '操作过于延迟 — 已忽略',
     FIELD_TOO_LARGE_FOR_PVP: 'PvP 支持最大 200×200 的场地，完整尺寸仅离线沙盒可用',
     ENGINE_VERSION_MISMATCH: '客户端引擎与服务器版本不同 — 请刷新页面',
+    RESUME_TOKEN_EXPIRED:    '重连窗口已过期 — 比赛已判负',
   },
   ja: {
     MALFORMED_MESSAGE:       'メッセージ形式エラー — JSON が不正または type フィールドがありません',
@@ -132,6 +139,7 @@ export const MESSAGES: MessagesByLocale = {
     INPUT_TOO_OLD:           '入力が遅すぎます — 無視されました',
     FIELD_TOO_LARGE_FOR_PVP: 'PvP は最大 200×200 のフィールドをサポート、フルサイズはオフラインサンドボックスのみ',
     ENGINE_VERSION_MISMATCH: 'クライアントとサーバーのバージョンが異なります — ページを更新してください',
+    RESUME_TOKEN_EXPIRED:    '再接続ウィンドウが期限切れ — 試合が負け扱いに',
   },
   ko: {
     MALFORMED_MESSAGE:       '메시지 형식 오류 — JSON이 잘못되었거나 type 필드가 없습니다',
@@ -146,6 +154,7 @@ export const MESSAGES: MessagesByLocale = {
     INPUT_TOO_OLD:           '입력이 너무 늦음 — 무시됨',
     FIELD_TOO_LARGE_FOR_PVP: 'PvP는 최대 200×200 필드 지원, 전체 크기는 오프라인 샌드박스에서만',
     ENGINE_VERSION_MISMATCH: '클라이언트 엔진 버전이 서버와 다름 — 페이지를 새로고침하세요',
+    RESUME_TOKEN_EXPIRED:    '재연결 시간이 만료됨 — 경기 패배 처리',
   },
   pt: {
     MALFORMED_MESSAGE:       'Mensagem malformada — JSON inválido ou campo type ausente',
@@ -160,6 +169,7 @@ export const MESSAGES: MessagesByLocale = {
     INPUT_TOO_OLD:           'Ação chegou tarde demais — ignorada',
     FIELD_TOO_LARGE_FOR_PVP: 'PvP suporta campos até 200×200, tamanho total disponível no sandbox offline',
     ENGINE_VERSION_MISMATCH: 'Versão do cliente difere do servidor — atualiza a página',
+    RESUME_TOKEN_EXPIRED:    'Janela de reconexão expirada — partida perdida',
   },
 };
 

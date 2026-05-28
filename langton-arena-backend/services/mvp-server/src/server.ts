@@ -7,7 +7,7 @@
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { AddressInfo } from 'node:net';
 import { Connection } from './connection.js';
-import { routeMessage, leaveCurrentRoom } from './router.js';
+import { routeMessage, handleConnectionClose } from './router.js';
 import { RoomManager } from './roomManager.js';
 import { makeContext, type ServerContext } from './serverContext.js';
 
@@ -22,6 +22,8 @@ export interface MvpServerOptions {
   matchCountdownMs?: number;
   /** Match tick interval ms. Default 100 (10 TPS). Test override: 5. */
   matchTickIntervalMs?: number;
+  /** Day 13: grace ms для reconnect. Default 15000. Test override: 100. */
+  graceDisconnectMs?: number;
 }
 
 export class MvpServer {
@@ -44,6 +46,7 @@ export class MvpServer {
       rooms: new RoomManager(),
       matchCountdownMs: opts.matchCountdownMs,
       matchTickIntervalMs: opts.matchTickIntervalMs,
+      graceDisconnectMs: opts.graceDisconnectMs,
     });
   }
 
@@ -77,6 +80,9 @@ export class MvpServer {
         clearTimeout(room.countdownHandle);
         room.countdownHandle = null;
       }
+      // Day 13: clear pending grace timers — иначе они выстрелят после shutdown
+      for (const timer of room.graceTimers.values()) clearTimeout(timer);
+      room.graceTimers.clear();
     }
     for (const conn of this.connections) {
       conn.close('server-shutdown');
@@ -110,11 +116,14 @@ export class MvpServer {
     ws.on('close', () => {
       this.connections.delete(conn);
       conn.closed = true;
-      // Stage 8 Day 4: cleanup room/countdown/match + broadcast другим игрокам
-      leaveCurrentRoom(conn, this.ctx);
+      // Stage 8 Day 13: split на grace (mid-match) vs immediate (others).
+      // handleConnectionClose возвращает true если grace mode (conn остался
+      // в room.players с disconnected=true и таймером).
+      const grace = handleConnectionClose(conn, this.ctx);
       this.logger('info', 'client disconnected', {
         clientId: conn.clientId,
         duration: Date.now() - conn.connectedAt,
+        graceMode: grace,
       });
     });
 

@@ -24,6 +24,10 @@ export interface WSClientOptions {
   url: string;
   /** Callback на каждое incoming сообщение (JSON-parsed). */
   onMessage: (msg: ServerMessage) => void;
+  /** Day 13: Callback при каждом успешном open — включая auto-reconnect.
+   *  reopen=true при reconnect (не первое open). Caller использует это чтобы
+   *  re-send join_room с resumeToken на reconnect. */
+  onOpen?: (reopen: boolean) => void;
   /** Callback при close. Аргументы: code (1000=normal), reason. */
   onClose?: (code: number, reason: string) => void;
   /** Callback при error. Аргумент: error object. */
@@ -63,6 +67,7 @@ export class WSClient {
   private connectPromise: Promise<void> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
+  private openCount = 0;
   private readonly Ctor: typeof WebSocket;
 
   constructor(private readonly opts: WSClientOptions) {
@@ -106,6 +111,9 @@ export class WSClient {
       this.ws.addEventListener('open', () => {
         this.setState('open');
         this.connectPromise = null;
+        const reopen = this.openCount > 0;
+        this.openCount++;
+        this.opts.onOpen?.(reopen);
         resolve();
       });
 

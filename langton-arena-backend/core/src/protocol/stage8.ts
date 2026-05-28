@@ -21,6 +21,9 @@ export interface PlayerInfo {
   ready: boolean;
   /** Локаль игрока для error messages. */
   locale: string;
+  /** Day 13: true если игрок сейчас отключён (grace period). UI показывает
+   *  "Opponent reconnecting..." вместо "Ready". */
+  disconnected?: boolean;
 }
 
 /** Атомарное действие deploy в match. */
@@ -34,7 +37,11 @@ export interface DeployAction {
 // ─── Client → Server ─────────────────────────────────────────────────────────
 
 export type ClientMessage =
-  | { type: 'join_room';  roomCode: string; nickname: string; locale: string }
+  | { type: 'join_room';  roomCode: string; nickname: string; locale: string;
+      /** Day 13: optional resume token — если client'у выдан токен ранее
+       *  (room_joined.resumeToken) и connection теперь reconnect, шлёт его.
+       *  Server найдёт matching disconnected slot и восстановит. */
+      resumeToken?: string }
   | { type: 'leave_room' }
   | { type: 'set_ready';  ready: boolean }
   | { type: 'deploy';     x: number; y: number; tick: number }
@@ -46,8 +53,15 @@ export type ClientMessageType = ClientMessage['type'];
 // ─── Server → Client ─────────────────────────────────────────────────────────
 
 export type ServerMessage =
-  | { type: 'room_joined';    roomCode: string; clientId: string; players: PlayerInfo[] }
+  | { type: 'room_joined';    roomCode: string; clientId: string; players: PlayerInfo[];
+      /** Day 13: resume token — client персистит для будущего reconnect. */
+      resumeToken: string;
+      /** Day 13: true если client уже был в этой комнате и просто восстановился. */
+      resumed?: boolean }
   | { type: 'room_updated';   players: PlayerInfo[] }
+  | { type: 'match_resume_state'; matchId: string; tick: number;
+      config: SandboxConfig; seed: number;
+      deployTimeline: DeployAction[] }
   | { type: 'match_starting'; countdownMs: number; config: SandboxConfig; seed: number; matchId: string }
   | { type: 'match_started';  matchId: string; startedAt: number; serverEngineVersion: string }
   | { type: 'match_tick';     tick: number; deploys: DeployAction[]; checksum?: string }
@@ -86,6 +100,8 @@ export const ERROR_CODES = {
   INPUT_TOO_OLD:           'INPUT_TOO_OLD',           // deploy с tick < server.tick
   FIELD_TOO_LARGE_FOR_PVP: 'FIELD_TOO_LARGE_FOR_PVP', // > 200×200
   ENGINE_VERSION_MISMATCH: 'ENGINE_VERSION_MISMATCH', // client engine ≠ server
+  // Day 13: reconnect
+  RESUME_TOKEN_EXPIRED:    'RESUME_TOKEN_EXPIRED',    // grace period истёк
 } as const;
 
 export type ErrorCode = typeof ERROR_CODES[keyof typeof ERROR_CODES];

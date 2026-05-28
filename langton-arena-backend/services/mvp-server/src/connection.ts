@@ -5,13 +5,13 @@
 // добавятся в Day 3/4.
 
 import type { WebSocket } from 'ws';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes } from 'node:crypto';
 import type { ServerMessage, ErrorCode } from './messages.js';
 import { t, normalizeLocale, type Locale, DEFAULT_LOCALE } from './i18n.js';
 
 export class Connection {
   /** Уникальный идентификатор клиента (per WS connection). */
-  readonly clientId: string;
+  clientId: string;
   /** Когда клиент подключился (ms since epoch). */
   readonly connectedAt: number;
   /** Локаль для error messages — устанавливается в join_room handler. */
@@ -24,6 +24,13 @@ export class Connection {
   ready: boolean;
   /** Закрыто ли соединение со стороны сервера/клиента. */
   closed: boolean;
+  /** Stage 8 Day 13: resume token для reconnect within grace period.
+   *  Генерируется один раз, отправляется client в room_joined,
+   *  client персистит в sessionStorage по roomCode. */
+  resumeToken: string;
+  /** Day 13: помечен ли connection как disconnected (grace period active).
+   *  Остаётся в room.players до grace expire / resume. */
+  disconnected: boolean;
 
   constructor(public readonly ws: WebSocket) {
     this.clientId = randomUUID();
@@ -32,6 +39,22 @@ export class Connection {
     this.roomCode = null;
     this.nickname = '';
     this.ready = false;
+    this.closed = false;
+    this.resumeToken = randomBytes(16).toString('hex');
+    this.disconnected = false;
+  }
+
+  /** Day 13: усыновить state от старого Connection при resume. Сохраняем
+   *  всё что должно остаться стабильным (clientId, nickname, locale, ready,
+   *  resumeToken, roomCode) — но ws/closed/disconnected обновляются. */
+  adoptFrom(old: Connection): void {
+    this.clientId = old.clientId;
+    this.locale = old.locale;
+    this.roomCode = old.roomCode;
+    this.nickname = old.nickname;
+    this.ready = old.ready;
+    this.resumeToken = old.resumeToken;
+    this.disconnected = false;
     this.closed = false;
   }
 

@@ -69,12 +69,16 @@ export function cancelMatchCountdown(room: Room): void {
   }
 }
 
-/** Завершить активный match (force end + cleanup). */
+/** Завершить активный match (force end + cleanup).
+ *  Day 13: также cleanup всех grace timers (если кто-то disconnected — теперь
+ *  no-op, матч уже закончился). */
 export function endActiveMatch(room: Room, reason: string, winnerIndex: number | null = null): void {
   if (!room.activeMatch) return;
   room.activeMatch.endWith(winnerIndex, reason);
   // status уже finished через finishAndBroadcast → теперь обнуляем match ref
   room.activeMatch = null;
+  for (const timer of room.graceTimers.values()) clearTimeout(timer);
+  room.graceTimers.clear();
 }
 
 // ─── private ─────────────────────────────────────────────────────────────────

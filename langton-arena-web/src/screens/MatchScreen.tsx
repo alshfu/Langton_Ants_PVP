@@ -20,6 +20,9 @@ import {
   makeGhost, addGhost, reconcileGhosts, rejectGhost, gcStaleGhosts,
   type Ghost,
 } from '@lib/clientPrediction';
+import {
+  getResumeToken, setResumeToken, clearResumeToken,
+} from '@lib/resumeToken';
 import { PLAYER_PALETTE } from '@core/shared/constants';
 
 type MatchPhase = 'connecting' | 'lobby' | 'countdown' | 'playing' | 'finished' | 'error';
@@ -94,6 +97,8 @@ export function MatchScreen() {
   const [replayUrl, setReplayUrl] = useState<string | null>(null);
   // Day 12: inline replay payload (PvP), захватываем из match_ended.
   const [pvpReplay, setPvpReplay] = useState<Replay | null>(null);
+  // Day 13: reconnect state — true когда показываем "Reconnecting…" overlay.
+  const [reconnectStatus, setReconnectStatus] = useState<'idle' | 'reconnecting' | 'opponent_away'>('idle');
 
   const me = players.find((p) => p.clientId === clientId);
   const opponent = players.find((p) => p.clientId !== clientId);
@@ -134,8 +139,34 @@ export function MatchScreen() {
     if (!roomCode) return;
     let cancelled = false;
 
+    // Day 13: helper для (re)send join_room — используется на каждое open
+    // (включая reconnect). Подкладывает saved resumeToken если есть.
+    const sendJoin = () => {
+      const savedToken = getResumeToken(roomCode);
+      wsRef.current?.send({
+        type: 'join_room',
+        roomCode,
+        nickname: nicknameRef.current,
+        locale: getBrowserLocale(),
+        ...(savedToken ? { resumeToken: savedToken } : {}),
+      });
+    };
+
     const ws = new WSClient({
       url: getWsUrl(),
+      autoReconnect: true,
+      reconnectDelayMs: 1500,
+      onOpen: (reopen) => {
+        if (cancelled) return;
+        // Day 13: на reopen после неожиданного close — переотправить join_room
+        // с сохранённым resumeToken. Initial open тоже делается через этот
+        // callback вместо .then() ниже (.then() оставлен для backwards
+        // compat handling reject).
+        if (reopen) {
+          setReconnectStatus('reconnecting');
+          sendJoin();
+        }
+      },
       onMessage: (msg: ServerMessage) => {
         if (cancelled) return;
         switch (msg.type) {
@@ -147,7 +178,18 @@ export function MatchScreen() {
               const idx = msg.players.findIndex((p) => p.clientId === msg.clientId);
               myPlayerIdxRef.current = idx >= 0 ? idx : null;
             }
-            setPhase('lobby');
+            // Day 13: персистим token для будущего reconnect (только если есть
+            // roomCode, что всегда true в этой ветке).
+            if (roomCode && msg.resumeToken) {
+              setResumeToken(roomCode, msg.resumeToken);
+            }
+            // Если это resume — match_resume_state придёт следующим,
+            // оставляем phase='reconnecting' до его получения. Иначе lobby.
+            if (msg.resumed) {
+              setReconnectStatus('reconnecting');
+            } else {
+              setPhase('lobby');
+            }
             break;
           case 'room_updated':
             setPlayers(msg.players);
@@ -155,6 +197,12 @@ export function MatchScreen() {
               const myId = clientId; // closure capture последнего state
               const idx = msg.players.findIndex((p) => p.clientId === myId);
               if (idx >= 0) myPlayerIdxRef.current = idx;
+            }
+            // Day 13: показываем "Opponent reconnecting…" если оппонент в grace
+            {
+              const opp = msg.players.find((p) => p.clientId !== clientId);
+              if (opp?.disconnected) setReconnectStatus('opponent_away');
+              else if (reconnectStatus === 'opponent_away') setReconnectStatus('idle');
             }
             break;
           case 'match_starting':
@@ -172,10 +220,13 @@ export function MatchScreen() {
           case 'match_ended':
             // Day 11: capture full result + replay URL для FinishedView.
             // Day 12: + inline replay payload для local save.
+            // Day 13: матч закончен — token больше не нужен.
+            if (roomCode) clearResumeToken(roomCode);
             setMatchResult(msg.result);
             setReplayUrl(msg.replayUrl);
             setPvpReplay(msg.replay ?? null);
             setPhase('finished');
+            setReconnectStatus('idle');
             break;
           case 'error':
             // Day 10: deploy rejection → откатить matching ghost + toast.
@@ -220,16 +271,48 @@ export function MatchScreen() {
             });
             break;
           }
+          case 'match_resume_state': {
+            // Day 13: catch-up после reconnect mid-match.
+            // 1. Restore config/seed/matchId — engine пересоздастся в LangtonField
+            //    через useEffect на seed+ants change.
+            // 2. Pre-fill pendingDeploysByTickRef со всеми историческими deploys
+            //    grouped by tick.
+            // 3. Bump stepSignal до server's tick — LangtonField fast-forward,
+            //    onTick callback применит каждый pending deploy при достижении
+            //    соответствующего sim.tick.
+            setMatchConfig({ ...msg.config, seed: msg.seed });
+            setMatchId(msg.matchId);
+            const map = new Map<number, DeployAction[]>();
+            for (const d of msg.deployTimeline) {
+              const arr = map.get(d.tick) ?? [];
+              arr.push(d);
+              map.set(d.tick, arr);
+            }
+            pendingDeploysByTickRef.current = map;
+            currentTickRef.current = msg.tick;
+            // Clear stale ghosts от прошлой connection
+            setPendingGhosts([]);
+            setStepSignal(msg.tick);
+            setPhase('playing');
+            setReconnectStatus('idle');
+            break;
+          }
           case 'pong':
             break;
         }
       },
       onClose: (code, reason) => {
         if (cancelled) return;
+        // Day 13: если autoReconnect активен — показываем "reconnecting…"
+        // вместо fatal error. Реальный error fired только если user explicitly
+        // disconnected или матч закончился.
         setPhase((curr) => {
           if (curr === 'finished' || curr === 'error') return curr;
+          // Normal closes (1000) во время lobby — не показываем error
+          if (code === 1000 && curr === 'lobby') return curr;
+          setReconnectStatus('reconnecting');
           setErrorText(`${t('match.connectionLost', 'Connection lost')} (${code} ${reason})`);
-          return 'error';
+          return curr; // НЕ переключаемся в error, ждём reconnect attempt
         });
       },
       onError: () => {
@@ -242,12 +325,8 @@ export function MatchScreen() {
     ws.connect()
       .then(() => {
         if (cancelled) return;
-        ws.send({
-          type: 'join_room',
-          roomCode,
-          nickname: nicknameRef.current,
-          locale: getBrowserLocale(),
-        });
+        // Initial join (Day 13: resumeToken подкладывается через helper).
+        sendJoin();
       })
       .catch((err) => {
         if (cancelled) return;
@@ -278,9 +357,13 @@ export function MatchScreen() {
   }, [t]);
 
   const goBack = useCallback(() => {
+    // Day 13: explicit leave — token больше не валиден (server cleanup
+    // ws.close handler immediate в lobby/finished phase). Если игрок вернётся
+    // в эту же комнату — будет fresh join.
+    if (roomCode) clearResumeToken(roomCode);
     wsRef.current?.disconnect();
     setScreen('menu');
-  }, [setScreen]);
+  }, [setScreen, roomCode]);
 
   // Stage 8 Day 9: click на канвас → send deploy сообщение.
   // Stage 8 Day 10: + optimistic ghost для instant визуальной обратной связи.
@@ -413,6 +496,53 @@ export function MatchScreen() {
           <ErrorView t={t} T={T} text={errorText} onBack={goBack} />
         )}
       </div>
+
+      {/* Day 13: reconnect overlay (на всех phase кроме error/finished) */}
+      {reconnectStatus !== 'idle' && phase !== 'error' && phase !== 'finished' && (
+        <div data-testid="reconnect-overlay" style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.55)',
+          backdropFilter: 'blur(2px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 100,
+        }}>
+          <div style={{
+            padding: '20px 28px',
+            background: T.bgElevated,
+            border: `1px solid ${T.warning}66`,
+            borderRadius: T.radiusSm,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
+            maxWidth: 360,
+            boxShadow: `0 8px 24px rgba(0,0,0,0.5)`,
+          }}>
+            <div style={{
+              width: 32, height: 32,
+              border: `3px solid ${T.border}`,
+              borderTopColor: T.warning,
+              borderRadius: '50%',
+              animation: 'spin 1s linear infinite',
+            }} />
+            <div style={{
+              fontSize: 13, color: T.textPrimary,
+              fontFamily: 'JetBrains Mono, monospace', textAlign: 'center',
+            }}>
+              {reconnectStatus === 'reconnecting'
+                ? t('match.reconnecting', 'Reconnecting…')
+                : t('match.opponentAway', 'Opponent reconnecting…')}
+            </div>
+            {reconnectStatus === 'opponent_away' && (
+              <div style={{
+                fontSize: 11, color: T.textMuted,
+                fontFamily: 'JetBrains Mono, monospace', textAlign: 'center',
+                maxWidth: 280,
+              }}>
+                {t('match.graceHint', 'If they don\'t return in time you win by forfeit.')}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -25,6 +25,9 @@ export class Room {
   activeMatch: Match | null = null;
   /** Handle setTimeout countdown'а — для отмены если игрок ушёл. */
   countdownHandle: NodeJS.Timeout | null = null;
+  /** Day 13: grace timers keyed by resumeToken. При disconnect mid-match
+   *  ставим таймер — если истёк до resume, forfeit. */
+  graceTimers: Map<string, NodeJS.Timeout> = new Map();
 
   constructor(code: string) {
     this.code = code;
@@ -52,7 +55,8 @@ export class Room {
     }
   }
 
-  /** Snapshot всех игроков для room_updated broadcast. */
+  /** Snapshot всех игроков для room_updated broadcast.
+   *  Day 13: disconnected exposed чтобы UI оппонента показывал статус. */
   getPlayerInfos(): PlayerInfo[] {
     return this.players.map((conn, index) => ({
       clientId: conn.clientId,
@@ -60,25 +64,44 @@ export class Room {
       index,
       ready: conn.ready,
       locale: conn.locale,
+      ...(conn.disconnected ? { disconnected: true } : {}),
     }));
   }
 
-  /** Отправить message ВСЕМ игрокам в room. */
+  /** Отправить message ВСЕМ игрокам в room.
+   *  Day 13: пропускаем disconnected — у них ws закрыт, send no-op. */
   broadcast(msg: ServerMessage): void {
     for (const conn of this.players) {
+      if (conn.disconnected) continue;
       conn.send(msg);
     }
   }
 
-  /** Готовы ли все (≥1) игроки. Используется в Day 4 для match_starting. */
+  /** Готовы ли все (≥1) игроки. Используется в Day 4 для match_starting.
+   *  Day 13: disconnected игроки не считаются ready. */
   allReady(): boolean {
     if (this.players.length < ROOM_MAX_PLAYERS) return false;
-    return this.players.every((p) => p.ready);
+    return this.players.every((p) => p.ready && !p.disconnected);
   }
 
-  /** Пуста ли комната — для cleanup в RoomManager. */
+  /** Пуста ли комната — для cleanup в RoomManager.
+   *  Day 13: disconnected counted как occupied (resume может прийти). */
   isEmpty(): boolean {
     return this.players.length === 0;
+  }
+
+  /** Day 13: число активных (не disconnected) connections. */
+  liveCount(): number {
+    return this.players.filter((c) => !c.disconnected).length;
+  }
+
+  /** Day 13: найти disconnected slot по resumeToken. */
+  findDisconnectedByToken(token: string): { conn: Connection; idx: number } | null {
+    for (let i = 0; i < this.players.length; i++) {
+      const p = this.players[i]!;
+      if (p.disconnected && p.resumeToken === token) return { conn: p, idx: i };
+    }
+    return null;
   }
 
   /** Найти player по clientId — для адресных messages. */

@@ -20,6 +20,9 @@ export interface ServerContext {
   seedFn: () => number;
   /** Генератор matchId. Default `match-${ts}-${rnd}`. */
   matchIdFn: () => string;
+  /** Day 13: grace period для reconnect mid-match. Default 15000ms.
+   *  Test override: 100. */
+  graceDisconnectMs: number;
 }
 
 export function defaultSeedFn(): number {
@@ -37,5 +40,6 @@ export function makeContext(opts: Partial<ServerContext> = {}): ServerContext {
     matchTickIntervalMs: opts.matchTickIntervalMs ?? 100,
     seedFn: opts.seedFn ?? defaultSeedFn,
     matchIdFn: opts.matchIdFn ?? defaultMatchIdFn,
+    graceDisconnectMs: opts.graceDisconnectMs ?? 15_000,
   };
 }

@@ -79,6 +79,52 @@ function handleJoinRoom(
   }
 
   const room = ctx.rooms.getOrCreate(msg.roomCode);
+
+  // Day 13: resume path. Если room имеет disconnected slot с matching token
+  // → swap dead conn на нового, cancel grace timer, send resume state.
+  if (msg.resumeToken) {
+    const found = room.findDisconnectedByToken(msg.resumeToken);
+    if (found) {
+      const slotIdx = found.idx;
+      conn.adoptFrom(found.conn); // copy clientId, nickname, locale, roomCode, ready
+      // Override nickname/locale из msg на случай если клиент сменил локаль
+      conn.nickname = msg.nickname;
+      conn.setLocale(msg.locale);
+      room.players[slotIdx] = conn;
+      // Cancel grace timer
+      const timer = room.graceTimers.get(found.conn.resumeToken);
+      if (timer) {
+        clearTimeout(timer);
+        room.graceTimers.delete(found.conn.resumeToken);
+      }
+      // Send resume state
+      conn.send({
+        type: 'room_joined',
+        roomCode: room.code,
+        clientId: conn.clientId,
+        players: room.getPlayerInfos(),
+        resumeToken: conn.resumeToken,
+        resumed: true,
+      });
+      // Если матч активен — отправить полный state для catch-up
+      if (room.activeMatch && !room.activeMatch.isFinished) {
+        conn.send({
+          type: 'match_resume_state',
+          matchId: room.activeMatch.matchId,
+          tick: room.activeMatch.currentTick,
+          config: room.activeMatch.config,
+          seed: room.activeMatch.seed,
+          deployTimeline: [...room.activeMatch.deployTimeline],
+        });
+      }
+      // Broadcast обновлённый list (опонент видит "reconnected")
+      room.broadcast({ type: 'room_updated', players: room.getPlayerInfos() });
+      return;
+    }
+    // Token не найден — silently fall through на normal join (не выдаём ошибку
+    // чтобы не leak'нуть какие токены валидны).
+  }
+
   const added = room.addPlayer(conn);
   if (!added) {
     conn.sendError(ERROR_CODES.ROOM_FULL);
@@ -90,6 +136,7 @@ function handleJoinRoom(
     roomCode: room.code,
     clientId: conn.clientId,
     players: room.getPlayerInfos(),
+    resumeToken: conn.resumeToken,
   });
   room.broadcast({
     type: 'room_updated',
@@ -188,7 +235,8 @@ function handlePing(
 /**
  * Снять connection с его текущего room (если есть), broadcast обновление,
  * cancel countdown если шёл, end match если активен, удалить пустой room.
- * Используется в leave_room + при ws.close().
+ * Используется в leave_room (explicit) + при ws.close() через
+ * handleConnectionClose (которая решает grace vs immediate).
  */
 export function leaveCurrentRoom(conn: Connection, ctx: ServerContext): void {
   if (!conn.roomCode) return;
@@ -225,4 +273,71 @@ export function leaveCurrentRoom(conn: Connection, ctx: ServerContext): void {
       players: room.getPlayerInfos(),
     });
   }
+}
+
+/**
+ * Day 13: обработка ws.close() — split на immediate (lobby/countdown/finished)
+ * vs grace (mid-match). В grace mode connection помечается disconnected,
+ * остаётся в room.players на slot index, запускается timer на forfeit.
+ *
+ * Возвращает true если grace mode (connection остался в room),
+ * false если был сразу полностью удалён (leaveCurrentRoom path).
+ */
+export function handleConnectionClose(conn: Connection, ctx: ServerContext): boolean {
+  if (!conn.roomCode) return false;
+  const room = ctx.rooms.get(conn.roomCode);
+  if (!room) {
+    conn.roomCode = null;
+    return false;
+  }
+
+  // Grace path: если идёт активный незаконченный match — даём шанс reconnect.
+  if (
+    room.activeMatch
+    && !room.activeMatch.isFinished
+    && room.status === 'playing'
+  ) {
+    conn.disconnected = true;
+    // Broadcast чтобы оппонент увидел "reconnecting..." statusvor
+    room.broadcast({
+      type: 'room_updated',
+      players: room.getPlayerInfos(),
+    });
+    // Если оба disconnected → cleanup сразу (никто не вернётся)
+    if (room.liveCount() === 0) {
+      if (room.activeMatch) room.activeMatch.stop();
+      room.activeMatch = null;
+      ctx.rooms.delete(room.code);
+      return false;
+    }
+    // Запускаем grace timer
+    const token = conn.resumeToken;
+    const timer = setTimeout(() => {
+      room.graceTimers.delete(token);
+      // Только если matchstill активен и conn всё ещё disconnected
+      if (!room.activeMatch || room.activeMatch.isFinished) return;
+      const slot = room.findDisconnectedByToken(token);
+      if (!slot) return; // resumed уже
+      // Forfeit: оппонент побеждает
+      const winnerIdx = slot.idx === 0 ? 1 : 0;
+      endActiveMatch(room, 'opponent_disconnected', winnerIdx);
+      // Cleanup: убираем dead conn полностью
+      room.removePlayer(slot.conn);
+      slot.conn.roomCode = null;
+      if (room.isEmpty()) {
+        ctx.rooms.delete(room.code);
+      } else {
+        room.broadcast({
+          type: 'room_updated',
+          players: room.getPlayerInfos(),
+        });
+      }
+    }, ctx.graceDisconnectMs);
+    room.graceTimers.set(token, timer);
+    return true;
+  }
+
+  // Все остальные phase (lobby / countdown / finished) — immediate.
+  leaveCurrentRoom(conn, ctx);
+  return false;
 }
