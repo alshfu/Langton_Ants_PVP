@@ -7,7 +7,8 @@
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { AddressInfo } from 'node:net';
 import { Connection } from './connection.js';
-import { routeMessage } from './router.js';
+import { routeMessage, leaveCurrentRoom } from './router.js';
+import { RoomManager } from './roomManager.js';
 
 export interface MvpServerOptions {
   /** Port. 0 для random — полезно для тестов. Default 8080. */
@@ -21,6 +22,7 @@ export interface MvpServerOptions {
 export class MvpServer {
   private wss: WebSocketServer | null = null;
   private connections: Set<Connection> = new Set();
+  readonly rooms: RoomManager = new RoomManager();
   private readonly logger: NonNullable<MvpServerOptions['logger']>;
   private readonly host: string;
   private readonly port: number;
@@ -85,12 +87,14 @@ export class MvpServer {
     ws.on('message', (data) => {
       // ws library types: data может быть Buffer | ArrayBuffer | Buffer[]. Нормализуем.
       const raw = Array.isArray(data) ? Buffer.concat(data) : (data as Buffer);
-      routeMessage(conn, raw);
+      routeMessage(conn, raw, this.rooms);
     });
 
     ws.on('close', () => {
       this.connections.delete(conn);
       conn.closed = true;
+      // Stage 8 Day 3: cleanup room state + broadcast другим игрокам
+      leaveCurrentRoom(conn, this.rooms);
       this.logger('info', 'client disconnected', {
         clientId: conn.clientId,
         duration: Date.now() - conn.connectedAt,

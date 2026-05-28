@@ -16,8 +16,12 @@ export class Connection {
   readonly connectedAt: number;
   /** Локаль для error messages — устанавливается в join_room handler. */
   locale: Locale;
-  /** Код комнаты если клиент в room (null до join_room). Day 3+. */
+  /** Код комнаты если клиент в room (null до join_room). */
   roomCode: string | null;
+  /** Nickname игрока — устанавливается в join_room. Day 3+. */
+  nickname: string;
+  /** Готов ли игрок (set_ready handler). Day 3+. */
+  ready: boolean;
   /** Закрыто ли соединение со стороны сервера/клиента. */
   closed: boolean;
 
@@ -26,6 +30,8 @@ export class Connection {
     this.connectedAt = Date.now();
     this.locale = DEFAULT_LOCALE;
     this.roomCode = null;
+    this.nickname = '';
+    this.ready = false;
     this.closed = false;
   }
 
