@@ -82,3 +82,20 @@ export type {
   DeployConfig,
   DeployValidation,
 } from './lib/deployValidation';
+
+// === Stage 8 WebSocket protocol (shared client + server) ====================
+// NOTE: DeployAction уже экспортируется из './contract/replay' выше,
+// поэтому из './protocol/stage8' экспортируем под алиасом DeployActionWS.
+// На практике это тот же type — обе ветки используют одинаковую shape.
+export {
+  ERROR_CODES,
+  isClientMessage,
+} from './protocol/stage8';
+export type {
+  PlayerInfo,
+  ClientMessage,
+  ClientMessageType,
+  ServerMessage,
+  ServerMessageType,
+  ErrorCode,
+} from './protocol/stage8';
