@@ -87,6 +87,11 @@ export {
   buildBirthConfig,
 } from './lib/buildEngineState';
 
+// === Apply deploy action (shared client + server) ===========================
+export {
+  applyDeployAction,
+} from './lib/applyDeploy';
+
 // === Deploy validation (shared client + server) =============================
 export {
   canDeploy,

@@ -13,7 +13,7 @@ import {
   makeLangtonState,
   stepLangton,
   canDeploy,
-  LA_RULES,
+  applyDeployAction,
   buildAntsFromConfig as coreBuildAntsFromConfig,
   buildBirthConfig as coreBuildBirthConfig,
   type SimState,
@@ -163,27 +163,8 @@ export class Match {
       deployRadius: this.config.deployRadius,
     });
     if (!v.ok) return false;
-
-    // Create new ant. Stage 8 Day 5: server создаёт без reserve mode
-    // (Stage 6 reserve mode — для sandbox; в PvP MVP игроки кликают
-    // прямо на канвас, ant появляется на месте).
-    const player = this.config.players[action.playerIdx];
-    if (!player) return false;
-    const ruleStr = LA_RULES[player.ruleId] ?? LA_RULES.classic!;
-    const ant: Ant = {
-      id: `${player.id}_deploy_${this.sim.tick}_${action.x}_${action.y}`,
-      owner: action.playerIdx,
-      x: action.x,
-      y: action.y,
-      dir: 0,
-      rule: ruleStr,
-      hp: player.startHp,
-      maxHp: player.startHp,
-      lastDamageTick: this.sim.tick - 9999,
-      bornAt: this.sim.tick,
-    };
-    this.sim.ants.push(ant);
-    return true;
+    // Stage 8 Day 9: shared apply logic — bit-identical client/server.
+    return applyDeployAction(this.sim, action, this.config);
   }
 
   private finishAndBroadcast(result: MatchResult): void {

@@ -13,8 +13,8 @@ import { Chip } from '@ui/Chip';
 import { WSClient } from '@lib/wsClient';
 import { getOrCreateNickname } from '@lib/nicknames';
 import { LangtonField } from '@components/LangtonField';
-import type { ServerMessage, PlayerInfo, SandboxConfig, Ant } from '@langton/core';
-import { buildAntsFromConfig } from '@langton/core';
+import type { ServerMessage, PlayerInfo, SandboxConfig, Ant, DeployAction, SimState } from '@langton/core';
+import { buildAntsFromConfig, applyDeployAction } from '@langton/core';
 import { PLAYER_PALETTE } from '@core/shared/constants';
 
 type MatchPhase = 'connecting' | 'lobby' | 'countdown' | 'playing' | 'finished' | 'error';
@@ -69,6 +69,16 @@ export function MatchScreen() {
   const [matchId, setMatchId] = useState<string | null>(null);
   const [countdownEndAt, setCountdownEndAt] = useState<number | null>(null);
   const [countdownRemaining, setCountdownRemaining] = useState<number>(0);
+  // Stage 8 Day 9: server-driven ticks.
+  // stepSignal — каждое match_tick инкрементируется до msg.tick,
+  // LangtonField stepSignal effect делает delta шагов.
+  const [stepSignal, setStepSignal] = useState(0);
+  // pendingDeploysByTick — map для onTick lookup: на каком tick применять.
+  const pendingDeploysByTickRef = useRef<Map<number, DeployAction[]>>(new Map());
+  // currentTickRef — последний server tick (для click → deploy с правильным tick).
+  const currentTickRef = useRef(0);
+  // myPlayerIdx — индекс в room.players (0 или 1). Set on room_joined.
+  const myPlayerIdxRef = useRef<number | null>(null);
 
   const me = players.find((p) => p.clientId === clientId);
   const opponent = players.find((p) => p.clientId !== clientId);
@@ -117,10 +127,20 @@ export function MatchScreen() {
           case 'room_joined':
             setClientId(msg.clientId);
             setPlayers(msg.players);
+            // Track our slot index for deploy click
+            {
+              const idx = msg.players.findIndex((p) => p.clientId === msg.clientId);
+              myPlayerIdxRef.current = idx >= 0 ? idx : null;
+            }
             setPhase('lobby');
             break;
           case 'room_updated':
             setPlayers(msg.players);
+            {
+              const myId = clientId; // closure capture последнего state
+              const idx = msg.players.findIndex((p) => p.clientId === myId);
+              if (idx >= 0) myPlayerIdxRef.current = idx;
+            }
             break;
           case 'match_starting':
             // Day 8: захватываем config + seed для playing phase.
@@ -143,9 +163,20 @@ export function MatchScreen() {
               setPhase('error');
             }
             break;
+          case 'match_tick': {
+            // Day 9: server-driven engine.
+            // 1. Index deploys by tick — onTick callback применит на нужном тике.
+            // 2. setStepSignal — LangtonField сделает delta шагов.
+            if (msg.deploys.length > 0) {
+              const arr = pendingDeploysByTickRef.current.get(msg.tick) ?? [];
+              arr.push(...msg.deploys);
+              pendingDeploysByTickRef.current.set(msg.tick, arr);
+            }
+            currentTickRef.current = msg.tick;
+            setStepSignal(msg.tick);
+            break;
+          }
           case 'pong':
-          case 'match_tick':
-            // Day 8/9
             break;
         }
       },
@@ -206,6 +237,34 @@ export function MatchScreen() {
     wsRef.current?.disconnect();
     setScreen('menu');
   }, [setScreen]);
+
+  // Stage 8 Day 9: click на канвас → send deploy сообщение.
+  // Server валидирует через canDeploy, отвечает match_tick.deploys (echo).
+  const handleDeployClick = useCallback((x: number, y: number) => {
+    const idx = myPlayerIdxRef.current;
+    if (idx == null || !wsRef.current) return;
+    wsRef.current.send({
+      type: 'deploy',
+      tick: currentTickRef.current,
+      x, y,
+    });
+  }, []);
+
+  // Stage 8 Day 9: server-driven onTick callback.
+  // LangtonField сделал step → sim.tick поднялся → достаём queued deploys для
+  // этого тика и применяем через shared applyDeployAction.
+  const handleEngineTick = useCallback((sim: SimState) => {
+    const map = pendingDeploysByTickRef.current;
+    const deploys = map.get(sim.tick);
+    if (deploys && matchConfig) {
+      for (const d of deploys) applyDeployAction(sim, d, matchConfig);
+      map.delete(sim.tick);
+    }
+    // Garbage collect старые ключи (если что-то застряло из-за reorder).
+    for (const t of Array.from(map.keys())) {
+      if (t < sim.tick - 5) map.delete(t);
+    }
+  }, [matchConfig]);
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -280,6 +339,10 @@ export function MatchScreen() {
             palette={palette}
             shapes={shapes}
             cellSize={cellSize}
+            stepSignal={stepSignal}
+            onTick={handleEngineTick}
+            onDeployClick={handleDeployClick}
+            myPlayerIdx={myPlayerIdxRef.current}
           />
         )}
         {phase === 'finished' && (
@@ -477,6 +540,7 @@ function CountdownView({
 
 function PlayingView({
   T, config, seed, matchId, ants, palette, shapes, cellSize,
+  stepSignal, onTick, onDeployClick, myPlayerIdx,
 }: SubViewBase & {
   config: SandboxConfig;
   seed: number;
@@ -485,6 +549,10 @@ function PlayingView({
   palette: string[];
   shapes: import('../components/antShapes').ShapeId[];
   cellSize: number;
+  stepSignal: number;
+  onTick: (sim: SimState) => void;
+  onDeployClick: (x: number, y: number) => void;
+  myPlayerIdx: number | null;
 }) {
   return (
     <div style={{
@@ -499,6 +567,7 @@ function PlayingView({
           {config.width}×{config.height} {config.gridType ?? 'square'}
         </Chip>
         <Chip color={T.accent} size="sm">seed: {seed}</Chip>
+        <Chip color={T.success} size="sm">tick: {stepSignal}</Chip>
         {matchId && <Chip color={T.textMuted} size="sm">{matchId.slice(0, 18)}…</Chip>}
       </div>
       <div style={{
@@ -516,7 +585,11 @@ function PlayingView({
           palette={palette}
           shapes={shapes}
           tps={config.baseTps * config.speedMultiplier}
-          paused={false}
+          paused={true}
+          stepSignal={stepSignal}
+          onTick={onTick}
+          deployMode={myPlayerIdx != null}
+          onDeployClick={onDeployClick}
           glow={config.showGlow}
           showTrail={config.showTrails}
           showHpDots={config.showHpDots}
@@ -535,7 +608,7 @@ function PlayingView({
       <div style={{
         fontSize: 10, color: T.textMuted, fontFamily: 'JetBrains Mono, monospace',
       }}>
-        Day 8 — engine на client. Day 9 переключит на server-driven ticks.
+        Click to deploy (you are player #{myPlayerIdx ?? '?'}). Server-driven @ {config.baseTps} TPS.
       </div>
     </div>
   );
