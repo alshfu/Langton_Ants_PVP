@@ -29,6 +29,7 @@ import { renderQrSvg, tryWebShare, isWebShareAvailable } from '@lib/qrCode';
 import { computeScoreboard, type ScoreboardSummary } from '@lib/computeScoreboard';
 import { hasSeenHint, markHintSeen, type HintId } from '@lib/onboarding';
 import { OnboardingHint } from '@components/OnboardingHint';
+import { music, moodFromDelta } from '@lib/music';
 
 type MatchPhase = 'connecting' | 'lobby' | 'countdown' | 'playing' | 'finished' | 'error';
 
@@ -210,6 +211,44 @@ export function MatchScreen() {
     if (activeHint) markHintSeen(activeHint);
     setActiveHint(null);
   }, [activeHint]);
+
+  // Day 25: dynamic gameplay music. Start на playing, stop на остальных
+  // phase'ах. Intensity растёт с tick progress (0..1) + bonus от близости
+  // scoreboard. Mood выводится из моего lead/deficit в территории.
+  useEffect(() => {
+    if (phase === 'playing') {
+      music.start();
+    } else {
+      music.stop();
+    }
+    return () => {
+      music.stop();
+    };
+  }, [phase]);
+  // Intensity + mood обновляются на каждый tick через scoreboard updates.
+  useEffect(() => {
+    if (phase !== 'playing' || !matchConfig || !scoreboard) return;
+    const threshold = matchConfig.winCondition.kind === 'time'
+      ? matchConfig.winCondition.threshold
+      : 300;
+    const tickProgress = Math.min(1, stepSignal / threshold);
+    // Базовая intensity растёт с прогрессом матча. Last 20% — full intensity
+    // (climactic finale). Bonus +0.15 если матч близкий (delta < 5%).
+    let intensity = 0.2 + tickProgress * 0.7;
+    if (tickProgress > 0.8) intensity = 1;
+    const myIdx = myPlayerIdxRef.current;
+    if (myIdx != null) {
+      const myEntry = scoreboard.entries.find((e) => e.playerIdx === myIdx);
+      const oppEntry = scoreboard.entries.find((e) => e.playerIdx !== myIdx);
+      if (myEntry && oppEntry) {
+        const delta = Math.abs(myEntry.percent - oppEntry.percent);
+        if (delta < 5) intensity = Math.min(1, intensity + 0.15);
+        // Mood — winning если веду на > 4%, losing если отстаю
+        music.setMood(moodFromDelta(myEntry.percent, oppEntry.percent));
+      }
+    }
+    music.setIntensity(intensity);
+  }, [phase, stepSignal, scoreboard, matchConfig]);
 
   // Stage 8 Day 8: engineAnts + palette + shapes для LangtonField в playing phase
   const engineAnts: Ant[] = useMemo(
