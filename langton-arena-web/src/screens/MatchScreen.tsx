@@ -34,6 +34,8 @@ import { VolumePanel } from '@components/VolumePanel';
 import { detectMilestones, type Milestone, type MilestoneId } from '@lib/matchMilestones';
 import { MilestoneBanner } from '@components/MilestoneBanner';
 import { MatchPreviewCard, STAGE8_DEFAULT_PREVIEW } from '@components/MatchPreviewCard';
+import { BotPlayer, type BotDifficulty, isBotNickname } from '@lib/botPlayer';
+import { BotInviteDialog } from '@components/BotInviteDialog';
 
 type MatchPhase = 'connecting' | 'lobby' | 'countdown' | 'playing' | 'finished' | 'error';
 
@@ -152,6 +154,9 @@ export function MatchScreen() {
   // Day 24: onboarding hint state. null означает либо все hints уже показаны,
   // либо текущая phase без hint. Reset на каждый phase change.
   const [activeHint, setActiveHint] = useState<HintId | null>(null);
+  // Day 31: bot opponent — dialog state + bot client instance ref
+  const [botDialogOpen, setBotDialogOpen] = useState(false);
+  const botRef = useRef<BotPlayer | null>(null);
 
   const me = players.find((p) => p.clientId === clientId);
   const opponent = players.find((p) => p.clientId !== clientId);
@@ -222,6 +227,30 @@ export function MatchScreen() {
     if (activeHint) markHintSeen(activeHint);
     setActiveHint(null);
   }, [activeHint]);
+
+  // Day 31: spawn bot opponent в том же room через secondary WS.
+  // Server видит бота как обычного player'а — no protocol changes.
+  const spawnBot = useCallback(async (difficulty: BotDifficulty) => {
+    if (!roomCode || botRef.current) return;
+    setBotDialogOpen(false);
+    botRef.current = new BotPlayer({
+      url: getWsUrl(),
+      roomCode,
+      difficulty,
+    });
+    try {
+      await botRef.current.start();
+    } catch {
+      botRef.current = null;
+    }
+  }, [roomCode]);
+  // Cleanup bot на unmount экрана
+  useEffect(() => {
+    return () => {
+      botRef.current?.stop();
+      botRef.current = null;
+    };
+  }, []);
 
   // Day 25/26: dynamic music через все игровые phase'ы.
   // - lobby: pad-only ambient (intensity 0.1)
@@ -740,6 +769,8 @@ export function MatchScreen() {
             roomCode={roomCode!}
             onReadyToggle={toggleReady}
             onCopyUrl={copyShareUrl}
+            onAddBot={() => setBotDialogOpen(true)}
+            botSpawned={botRef.current != null}
           />
         )}
         {phase === 'countdown' && (
@@ -796,6 +827,14 @@ export function MatchScreen() {
         <MilestoneBanner
           milestone={activeMilestone}
           onDismiss={() => setActiveMilestone(null)}
+        />
+      )}
+
+      {/* Day 31: bot difficulty dialog — открывается из lobby Play vs Bot */}
+      {botDialogOpen && (
+        <BotInviteDialog
+          onSelect={spawnBot}
+          onCancel={() => setBotDialogOpen(false)}
         />
       )}
 
@@ -915,6 +954,7 @@ function ConnectingView({ t, T }: SubViewBase) {
 
 function LobbyView({
   t, T, players, me, opponent, roomCode, onReadyToggle, onCopyUrl,
+  onAddBot, botSpawned,
 }: SubViewBase & {
   players: PlayerInfo[];
   me: PlayerInfo | undefined;
@@ -922,6 +962,8 @@ function LobbyView({
   roomCode: string;
   onReadyToggle: () => void;
   onCopyUrl: () => void;
+  onAddBot: () => void;
+  botSpawned: boolean;
 }) {
   // Day 19: room invite URL — для QR code и Web Share.
   const shareUrl = typeof window !== 'undefined' ? window.location.href : '';
@@ -1041,6 +1083,30 @@ function LobbyView({
               ? `📤 ${t('match.shareInvite', 'Share invite')}`
               : `📋 ${t('match.copyShareUrl', 'Copy URL')}`}
           </Button>
+
+          {/* Day 31: Bot opponent option — для когда никто не приходит */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            margin: '4px 0',
+          }}>
+            <div style={{ flex: 1, height: 1, background: T.border }} />
+            <span style={{ fontSize: 9, color: T.textMuted, letterSpacing: 1 }}>
+              OR
+            </span>
+            <div style={{ flex: 1, height: 1, background: T.border }} />
+          </div>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={onAddBot}
+            disabled={botSpawned}
+            data-testid="add-bot-button"
+            fullWidth
+          >
+            {botSpawned
+              ? `⏳ ${t('match.botJoining', 'Bot joining...')}`
+              : `🤖 ${t('match.playVsBot', 'Play vs Bot')}`}
+          </Button>
         </div>
       )}
     </div>
@@ -1054,16 +1120,23 @@ function PlayerSlot({
   isMe: boolean;
   label: string;
 }) {
+  // Day 31: distinguish bot slots — different icon, sub-label "Bot".
+  const isBot = player ? isBotNickname(player.nickname) : false;
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 12,
       padding: 12,
       background: player ? T.bgOverlay : 'transparent',
-      border: `1px solid ${player ? (player.ready ? T.success : T.border) : T.border}`,
+      border: `1px solid ${
+        player ? (player.ready ? T.success : T.border)
+        : T.border
+      }`,
       borderRadius: T.radiusSm,
       borderStyle: player ? 'solid' : 'dashed',
     }}>
-      <div style={{ fontSize: 24 }}>{player ? '👤' : '⏳'}</div>
+      <div style={{ fontSize: 24 }}>
+        {!player ? '⏳' : isBot ? '🤖' : '👤'}
+      </div>
       <div style={{ flex: 1 }}>
         <div style={{
           fontSize: 11, color: T.textMuted, textTransform: 'uppercase',
