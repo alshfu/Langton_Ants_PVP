@@ -25,7 +25,9 @@ export function defaultMatchConfig(seed: number): SandboxConfig {
       {
         id: 'p0',
         name: 'P1',
-        color: '#FF5470',
+        // Day 16: high-contrast palette (см. langton-arena-web constants.ts).
+        // p0 = Crimson (hue 0°), p1 = Cyan (hue 180°) — максимально удалены.
+        color: '#F53D3D',
         ruleId: 'classic',
         startHp: 3,
         spawnPattern: 'corner',
@@ -39,7 +41,7 @@ export function defaultMatchConfig(seed: number): SandboxConfig {
       {
         id: 'p1',
         name: 'P2',
-        color: '#4DA8FF',
+        color: '#3DF5F5',
         ruleId: 'classic',
         startHp: 3,
         spawnPattern: 'corner',

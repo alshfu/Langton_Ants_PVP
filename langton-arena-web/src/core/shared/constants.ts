@@ -10,17 +10,32 @@ export interface PlayerColor {
        | 'star' | 'cross' | 'pentagon' | 'octagon' | 'ring';
 }
 
+/**
+ * Stage 8 Day 16 — high-contrast 10-player palette.
+ *
+ * Каждый hex это pure HSL rotation: H = idx × 36°, S = 90%, L = 60%.
+ * 36° spacing гарантирует что любые два соседних цвета perceptually
+ * distinct — раньше в палитре было 5+ дубликатов (Crimson≈Magenta,
+ * Amber≈Sunflower, Azure≈Sky, Mint≈Teal). Теперь — равномерное круговое
+ * распределение по color wheel.
+ *
+ * L=60% подобран чтобы цвета "поппали" на тёмном bg (#0E0B1F) без
+ * выгорания. S=90% — high saturation для clear identity.
+ *
+ * Shape остаётся как secondary signal на случай color-blind игроков:
+ * даже если два цвета сливаются в каком-то типе CVD — shape выручит.
+ */
 export const PLAYER_PALETTE: ReadonlyArray<PlayerColor> = [
-  { id: 0, hex: '#FF5470', name: 'Crimson',   shape: 'circle' },
-  { id: 1, hex: '#4DA8FF', name: 'Azure',     shape: 'triangle' },
-  { id: 2, hex: '#39D98A', name: 'Mint',      shape: 'diamond' },
-  { id: 3, hex: '#FFD60A', name: 'Amber',     shape: 'hexagon' },
-  { id: 4, hex: '#C77DFF', name: 'Violet',    shape: 'square' },
-  { id: 5, hex: '#FF8A3D', name: 'Tangerine', shape: 'star' },
-  { id: 6, hex: '#00E5D1', name: 'Teal',      shape: 'cross' },
-  { id: 7, hex: '#FF4D9E', name: 'Magenta',   shape: 'pentagon' },
-  { id: 8, hex: '#FFCC00', name: 'Sunflower', shape: 'octagon' },
-  { id: 9, hex: '#7DD3FC', name: 'Sky',       shape: 'ring' },
+  { id: 0, hex: '#F53D3D', name: 'Crimson',   shape: 'circle' },   //   0°
+  { id: 1, hex: '#F5AB3D', name: 'Tangerine', shape: 'triangle' }, //  36°
+  { id: 2, hex: '#D0F53D', name: 'Lemon',     shape: 'hexagon' },  //  72°
+  { id: 3, hex: '#62F53D', name: 'Lime',      shape: 'diamond' },  // 108°
+  { id: 4, hex: '#3DF587', name: 'Mint',      shape: 'star' },     // 144°
+  { id: 5, hex: '#3DF5F5', name: 'Cyan',      shape: 'cross' },    // 180°
+  { id: 6, hex: '#3D87F5', name: 'Azure',     shape: 'square' },   // 216°
+  { id: 7, hex: '#623DF5', name: 'Indigo',    shape: 'pentagon' }, // 252°
+  { id: 8, hex: '#D03DF5', name: 'Violet',    shape: 'octagon' },  // 288°
+  { id: 9, hex: '#F53DAB', name: 'Magenta',   shape: 'ring' },     // 324°
 ] as const;
 
 export interface RuleMeta {
