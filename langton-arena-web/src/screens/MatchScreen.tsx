@@ -26,6 +26,7 @@ import {
 import { PLAYER_PALETTE } from '@core/shared/constants';
 import { fx } from '@lib/audio';
 import { renderQrSvg, tryWebShare, isWebShareAvailable } from '@lib/qrCode';
+import { computeScoreboard, type ScoreboardSummary } from '@lib/computeScoreboard';
 
 type MatchPhase = 'connecting' | 'lobby' | 'countdown' | 'playing' | 'finished' | 'error';
 
@@ -127,6 +128,8 @@ export function MatchScreen() {
   // Day 18: mute toggle for in-match audio. Persists в localStorage через fx.
   const [muted, setMuted] = useState<boolean>(fx.isMuted());
   const lastBeepSecRef = useRef<number>(-1);
+  // Day 20: live scoreboard updated на каждый engine tick.
+  const [scoreboard, setScoreboard] = useState<ScoreboardSummary | null>(null);
 
   const me = players.find((p) => p.clientId === clientId);
   const opponent = players.find((p) => p.clientId !== clientId);
@@ -476,6 +479,7 @@ export function MatchScreen() {
   // Stage 8 Day 9: server-driven onTick callback.
   // LangtonField сделал step → sim.tick поднялся → достаём queued deploys для
   // этого тика и применяем через shared applyDeployAction.
+  // Stage 8 Day 20: + live scoreboard recompute из текущей engine state.
   const handleEngineTick = useCallback((sim: SimState) => {
     const map = pendingDeploysByTickRef.current;
     const deploys = map.get(sim.tick);
@@ -487,7 +491,17 @@ export function MatchScreen() {
     for (const t of Array.from(map.keys())) {
       if (t < sim.tick - 5) map.delete(t);
     }
-  }, [matchConfig]);
+    // Day 20: scoreboard recompute. computeScoreboard ~microsecond на 60×60,
+    // безопасно на каждый tick. matchConfig.players и palette derived из
+    // matchConfig — derived обновляется в полстроку.
+    if (matchConfig) {
+      setScoreboard(computeScoreboard(
+        sim,
+        matchConfig.players.map(p => ({ id: p.id, name: p.name })),
+        palette,
+      ));
+    }
+  }, [matchConfig, palette]);
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -595,6 +609,7 @@ export function MatchScreen() {
             myPlayerIdx={myPlayerIdxRef.current}
             ghostDeploys={pendingGhosts}
             rejectionToast={rejectionToast}
+            scoreboard={scoreboard}
           />
         )}
         {phase === 'finished' && matchResult && (
@@ -906,7 +921,7 @@ function CountdownView({
 function PlayingView({
   T, config, seed, matchId, ants, palette, shapes, cellSize,
   stepSignal, onTick, onDeployClick, myPlayerIdx,
-  ghostDeploys, rejectionToast,
+  ghostDeploys, rejectionToast, scoreboard,
 }: SubViewBase & {
   config: SandboxConfig;
   seed: number;
@@ -921,12 +936,21 @@ function PlayingView({
   myPlayerIdx: number | null;
   ghostDeploys: Array<{ x: number; y: number; playerIdx: number }>;
   rejectionToast: string | null;
+  scoreboard: ScoreboardSummary | null;
 }) {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', gap: 12,
       alignItems: 'center',
     }}>
+      {/* Day 20: live scoreboard над канвасом — competitive visibility */}
+      {scoreboard && (
+        <LiveScoreboard
+          T={T}
+          summary={scoreboard}
+          myPlayerIdx={myPlayerIdx}
+        />
+      )}
       <div style={{
         display: 'flex', gap: 8, fontSize: 10,
         color: T.textMuted, fontFamily: 'JetBrains Mono, monospace',
@@ -999,6 +1023,82 @@ function PlayingView({
       }}>
         Click to deploy (you are player #{myPlayerIdx ?? '?'}). Server-driven @ {config.baseTps} TPS.
       </div>
+    </div>
+  );
+}
+
+/**
+ * Day 20: live territory scoreboard. Compact horizontal bar над канвасом.
+ * Каждый игрок — карточка с цветным кружком, name, cells / percent.
+ * Лидер подсвечивается небольшой границей. My slot выделяется ring'ом
+ * чтобы не путать своё с чужим в 10-player режиме.
+ */
+function LiveScoreboard({
+  T, summary, myPlayerIdx,
+}: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  T: any;
+  summary: ScoreboardSummary;
+  myPlayerIdx: number | null;
+}) {
+  const leaderIdx = summary.entries[0]?.playerIdx ?? null;
+  return (
+    <div
+      data-testid="live-scoreboard"
+      style={{
+        display: 'flex', gap: 8, flexWrap: 'wrap',
+        justifyContent: 'center', alignItems: 'center',
+        fontFamily: 'JetBrains Mono, monospace',
+      }}
+    >
+      {summary.entries.map((e) => {
+        const isLeader = e.playerIdx === leaderIdx && summary.totalOwned > 0;
+        const isMe = e.playerIdx === myPlayerIdx;
+        return (
+          <div
+            key={e.playerIdx}
+            data-testid={`scoreboard-p${e.playerIdx}`}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '6px 10px',
+              background: isLeader ? `${e.color}1A` : T.bgOverlay,
+              border: `1px solid ${isLeader ? e.color : T.border}`,
+              borderRadius: T.radiusSm,
+              boxShadow: isMe ? `0 0 0 1.5px ${e.color}66 inset` : 'none',
+              transition: 'background 0.2s, border-color 0.2s',
+            }}
+          >
+            <span style={{
+              display: 'inline-block',
+              width: 10, height: 10,
+              background: e.color,
+              borderRadius: '50%',
+              boxShadow: `0 0 6px ${e.color}99`,
+            }} />
+            <span style={{
+              fontSize: 11, fontWeight: isMe ? 700 : 500,
+              color: T.textPrimary, letterSpacing: 0.5,
+              maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {e.name}{isMe ? ' (you)' : ''}
+            </span>
+            <span style={{
+              fontSize: 12, fontWeight: 700,
+              color: e.color,
+              minWidth: 32, textAlign: 'right',
+              fontVariantNumeric: 'tabular-nums',
+            }}>
+              {e.percent.toFixed(1)}%
+            </span>
+            <span style={{
+              fontSize: 10, color: T.textMuted,
+              fontVariantNumeric: 'tabular-nums',
+            }}>
+              {e.cells}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
