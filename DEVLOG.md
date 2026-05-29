@@ -2864,9 +2864,97 @@ music, SFX, stingers, banners, volume controls. Единственная
 difference — sandbox-specific phase mapping (run+!paused = playing).
 Это правильно — sandbox и match имеют разные state machines.
 
+### День 29 — Match HUD enhancements
+
+Открыл свою же PvP игру в двух вкладках, поиграл несколько матчей.
+Заметил гэп: scoreboard показывает только territory %. Мне как
+**игроку в реальном времени** не хватает информации:
+
+1. **Сколько у меня alive ants** — критично для тактических решений.
+   У меня 50% территории, но 1 ant alive vs у opp 30% но 5 ants —
+   я в плохом положении даже несмотря на территориальный лидер.
+
+2. **Сколько времени осталось** — tick counter показывает "tick 156"
+   что почти ничего не говорит. На 10 TPS это значит "≈ через
+   14 секунд match ends". Игрок должен делить в уме каждые tick.
+
+3. **Visual urgency** когда я в опасности — нет cue, я могу не
+   заметить что мой percent упал к 18% пока не услышу stinger.
+
+Это все **information visualization** проблемы. Один день, чисто
+frontend.
+
+**antsAlive в ScoreboardEntry**. computeScoreboard теперь делает
+**single-pass** через sim.ants:
+
+```ts
+for (const ant of sim.ants) {
+  if (ant.dead || ant.owner === 255) continue;
+  antsAliveByPlayer.set(ant.owner, (antsAliveByPlayer.get(ant.owner) ?? 0) + 1);
+}
+```
+
+Skip dead + wild (owner=255 — мутацией спавненные ants не принадлежат
+игроку). LiveScoreboard теперь показывает "🐜 N" рядом с percent.
+Когда N=0 — окрашен в T.danger как warning visual.
+
+**Critical state** — когда percent < 25% и > 0:
+- Background tinted `${T.danger}12` (semi-transparent danger)
+- Border `${T.danger}88` (danger)  
+- Infinite pulse animation: box-shadow ring expanding 4px каждые 1.4s
+
+CSS animation через inline `<style>`. Нет внешних CSS файлов — все
+animations co-located с component (one of the principles of CSS-in-JS
+которому я follow в этом проекте).
+
+**Eliminated state** — когда antsAlive === 0:
+- opacity 0.45
+- percent в T.textMuted (grey)
+- card "wilts" visually
+
+Этот state можно reach в multi-player matches с death mechanics —
+в Stage 8 PvP MVP без kills этого почти не видно, но **готовится к
+Stage 9** где elimination будет основной механикой.
+
+**MatchTimer component**. Inline computation:
+
+```ts
+const secondsLeft = Math.ceil((threshold - stepSignal) / (baseTps × speedMultiplier));
+const urgent = secondsLeft <= 10 && secondsLeft > 0;
+```
+
+10-second urgency window: scale-pulse 0.6s + T.warning border.
+Подобран эмпирически — 5s слишком короткое окно (player может не
+успеть отреагировать), 20s слишком длинное (urgency stops being
+urgent).
+
+Показывается **только** для time-based win condition. Для kills/
+elimination обратный отсчёт бесмысленен — match может закончиться
+в любой момент когда последний enemy ant умрёт.
+
+**4 новых теста** для antsAlive. Plus пришлось fix milestone test
+fixtures (они hard-code'или ScoreboardEntry без нового field).
+Это **classic backward compat issue** — расширил interface, старые
+mocks broke. TypeScript caught это immediately, но в JavaScript
+ecosystem это была бы runtime regression.
+
+Bundle +2 KB raw / +0.5 gzip. Cheap.
+
+**Урок дня.** Information visualization не cost'ит много кода, но
+add'ит significant value. 4 changes (antsAlive field, scoreboard
+visuals, MatchTimer, animations) собраны в одном дне, ~150 строк
+кода, **транформируют match experience**. Real players прокачнут
+быстрее когда видят сколько у них муравьёв и времени; будет
+больше strategic deploys, fewer panic clicks.
+
+Lesson for next game project: budget **2-3 дня для HUD/info UX**
+после core mechanic work. Это не "polish" в смысле "косметика" —
+это **playability**. Без timer + alive count игрок принимает
+решения на 50% slower, и часто wrong.
+
 ---
 
-### Этап 8 закрыт. Что построили за 28 дней
+### Этап 8 закрыт. Что построили за 29 дней
 
 - 5 микросервисов в `langton-arena-backend/` (только mvp-server
   реально работает; остальные — заготовки для Этапа 9)
@@ -2894,17 +2982,19 @@ difference — sandbox-specific phase mapping (run+!paused = playing).
   visual banners с overshoot animation
 - Day 28 wire music + stingers в Sandbox (cross-screen audio
   consistency — sandbox теперь functionally equivalent PvP audio-wise)
-- 463/463 тестов: 226 web + 131 core + 106 mvp-server
+- Match HUD: ants alive count, time remaining countdown, critical
+  pulse animation, eliminated state visuals
+- 467/467 тестов: 230 web + 131 core + 106 mvp-server
 - 0 TypeScript ошибок strict mode
 
 **По числам Этапа 8:**
-- 28 дней (из них 2 — побочные квесты Render→VPS и Reddit)
+- 29 дней (из них 2 — побочные квесты Render→VPS и Reddit)
 - ~40 новых файлов в backend, ~27 новых в web
-- Bundle web вырос 132 → 216 КБ (за счёт MatchScreen + WSClient +
+- Bundle web вырос 132 → 218 КБ (за счёт MatchScreen + WSClient +
   clientPrediction + protocol типов + layered WebAudio FX + QR
   encoder + scoreboard + sandbox audio wire + rematch UI +
   onboarding hints + music sequencer + volume panel + milestones +
-  sandbox music wire)
+  sandbox music wire + HUD enhancements)
 - Server image 192 МБ Docker, RAM ~50 МБ idle, ~80 МБ под матчем
 - 0 production incidents за 5 дней live (но 0 пользователей пока)
 
