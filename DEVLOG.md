@@ -2545,9 +2545,87 @@ core" зависит от **stability of the surrounding UX**. UI element
 visual indicator) который не меняется — делать сразу. Mental model
 для следующего проекта.
 
+### День 25 — Dynamic gameplay music
+
+Sound effects из Day 18/21 — это **events**. Tap, click, victory.
+Между ними тишина. В Geometry Dash и других хорошо звучащих играх
+есть **continuous flow** — мелодия идёт всё время и реагирует на
+state. Сегодня делаю это для PvP матча.
+
+Это самый амбициозный audio день. Не "ещё один beep", а **целый
+sequencer** с looping pattern, multiple voices, dynamic intensity
+ramp'ы, mood-based chord progressions. ~400 строк кода. И всё это
+без ассетов — pure WebAudio synthesis.
+
+**Lookahead scheduler** — это критичный паттерн. Если шедулить ноты
+по `setTimeout(playNote, delay)` — будет jitter. JavaScript timer
+имеет минимальный grain 4ms (HTML5 spec), плюс GC pauses делают
+audio пьяным. Решение из Chris Wilson 2013 article "A Tale of Two
+Clocks": два clock'а одновременно — JavaScript clock (через
+setInterval) и audio sample clock (через AudioContext.currentTime).
+JavaScript timer просто проверяет каждые 25ms "что нужно schedule
+вперёд на следующие 100ms" и записывает в audio clock через
+`osc.start(time)`. Audio clock sample-accurate.
+
+```ts
+function tick() {
+  while (nextStepTime < ctx.currentTime + 0.1) {
+    scheduleStep(currentStep, nextStepTime);
+    nextStepTime += 0.125;  // 16th note at 120 BPM
+    currentStep = (currentStep + 1) % 32;
+  }
+}
+setInterval(tick, 25);
+```
+
+Voices — 4 layer'а. Bass walking line на sawtooth с lowpass filter
+(сделать warmth). Pad — sine triad sustained, gives harmonic
+foundation. Drums (kick/snare/hihat) — каждый со своим synthesis:
+kick это sine с pitch sweep 120→40Hz, snare = tone + bandpass noise,
+hihat = white noise + highpass 7kHz. Lead — square + triangle
+octave-up для chiptune feel.
+
+3 chord progressions — это где music engine становится **dynamic**.
+Когда я веду — progression brightens (Am-Dm-F-G → Am7-F-G-C
+который **резолвится** в major). Когда отстаю — darkens (Bdim + E7,
+classical "dramatic minor"). Когда delta < 4% — neutral. mood
+выводится из scoreboard delta через pure helper `moodFromDelta()`.
+
+Intensity — это другой dimension. Растёт с tick progress. Last 20%
+матча — full intensity (climactic). Если матч близкий (delta < 5%) —
+bonus +0.15 intensity. Drums и lead **fade in** через
+`linearRampToValueAtTime(target, now+0.2)` — без щелчков.
+
+**Тестирование сложно.** Pure helpers (3 функции) тестируются нормально.
+Engine smoke — start/stop без AudioContext в jsdom не падает. Mocked
+AudioContext полный — все нужные API surface (oscillator, gain,
+filter, buffer, bufferSource, convolver). После Day 21 mock factory
+уже была, сегодня просто расширил.
+
+22 новых теста. 425/425 total.
+
+Bundle +8 KB raw / +2.2 KB gzip. Music engine ~400 строк кода
++ scheduler infrastructure. Для full procedural sequencer'а это
+**очень мало** — мог бы тащить tonejs (~50 KB) или похожую lib.
+
+**Урок дня.** Audio quality scaling: Day 18 первый раз procedural
+sound (60 строк, 6 events). Day 21 layered synthesis (300 строк,
+6 events but rich). Day 25 — sequencer (400 строк, continuous
+musical experience). Каждый шаг **в 2-3 раза больше кода**, но
+**в 10 раз больше perceived quality**. Это non-linear scaling.
+
+Lesson for next project: budget for audio quality в **самом начале**.
+Audio это не "поставлю Tone.js за день", это **architecture decision**
+с эффектом на bus topology, scheduling, event integration. И в то
+же время — procedural audio оплачивает себя многократно. ~8 КБ
+gzip для full music engine vs ~500 КБ для среднего mp3 background
+track. Procedural выигрывает по всем metric'ам кроме "точный
+voicing композитора" — а в нашем case'е (cellular automata PvP)
+композитор не нужен, нужен **interactive flow**.
+
 ---
 
-### Этап 8 закрыт. Что построили за 24 дня
+### Этап 8 закрыт. Что построили за 25 дней
 
 - 5 микросервисов в `langton-arena-backend/` (только mvp-server
   реально работает; остальные — заготовки для Этапа 9)
@@ -2567,16 +2645,18 @@ visual indicator) который не меняется — делать сраз
 - Live territory scoreboard
 - Rematch flow (request_rematch + 60s timeout + resetForRematch)
 - First-time onboarding hints (3 contextual banners + localStorage)
-- 416/416 тестов: 179 web + 131 core + 106 mvp-server
+- Dynamic gameplay music (4-voice sequencer, 3 mood progressions,
+  intensity-controlled drum + lead layers)
+- 438/438 тестов: 201 web + 131 core + 106 mvp-server
 - 0 TypeScript ошибок strict mode
 
 **По числам Этапа 8:**
-- 24 дня (из них 2 — побочные квесты Render→VPS и Reddit)
-- ~40 новых файлов в backend, ~22 новых в web
-- Bundle web вырос 132 → 198 КБ (за счёт MatchScreen + WSClient +
+- 25 дней (из них 2 — побочные квесты Render→VPS и Reddit)
+- ~40 новых файлов в backend, ~23 новых в web
+- Bundle web вырос 132 → 206 КБ (за счёт MatchScreen + WSClient +
   clientPrediction + protocol типов + layered WebAudio FX + QR
   encoder + scoreboard + sandbox audio wire + rematch UI +
-  onboarding hints)
+  onboarding hints + music sequencer)
 - Server image 192 МБ Docker, RAM ~50 МБ idle, ~80 МБ под матчем
 - 0 production incidents за 5 дней live (но 0 пользователей пока)
 
