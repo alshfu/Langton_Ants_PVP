@@ -55,6 +55,7 @@ import { computeMatchResult } from '@lib/computeMatchResult';
 import { canDeploy } from '@langton/core';
 import { MatchBanner } from '@components/MatchBanner';
 import { fx } from '@lib/audio';
+import { VolumePanel } from '@components/VolumePanel';
 
 // ─── Stage 7.4: Media controls subcomponents ─────────────────────────────────
 
@@ -175,11 +176,8 @@ export function SandboxScreen() {
     }
     lastMatchFinishedRef.current = finished;
   }, [liveStats.match.finished, liveStats.match.winnerId]);
-  const toggleMute = useCallback(() => {
-    const next = !fx.isMuted();
-    fx.setMuted(next);
-    setMuted(next);
-  }, []);
+  // Day 26: mute toggle button opens VolumePanel popover instead of immediate mute.
+  const [volumePanel, setVolumePanel] = useState<{ right: number; top: number } | null>(null);
 
   // Stage 4: events + heatmap в refs (часто меняются, не должны re-render всё)
   const eventsRef = useRef<LogEvent[]>([]);
@@ -1167,13 +1165,17 @@ export function SandboxScreen() {
               </Chip>
             );
           })()}
-          {/* Day 22: mute toggle — синхронизирован с MatchScreen через fx state. */}
+          {/* Day 22/26: speaker icon → opens VolumePanel popover (Day 26). */}
           <button
             type="button"
-            onClick={toggleMute}
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              setVolumePanel({ right: r.right, top: r.top });
+              setMuted(fx.isMuted());
+            }}
             data-testid="sandbox-mute-toggle"
-            aria-label={muted ? t('audio.unmute', 'Unmute') : t('audio.mute', 'Mute')}
-            title={muted ? t('audio.unmute', 'Unmute') : t('audio.mute', 'Mute')}
+            aria-label={t('audio.settings', 'Audio settings')}
+            title={t('audio.settings', 'Audio settings')}
             style={{
               display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
               width: 32, height: 28, padding: 0,
@@ -1189,6 +1191,18 @@ export function SandboxScreen() {
           </button>
         </div>
       </div>
+
+      {/* Day 26: VolumePanel popover для Sandbox top bar */}
+      {volumePanel && (
+        <VolumePanel
+          anchorRight={volumePanel.right}
+          anchorTop={volumePanel.top}
+          onClose={() => {
+            setVolumePanel(null);
+            setMuted(fx.isMuted());
+          }}
+        />
+      )}
 
       {/* Main area */}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>

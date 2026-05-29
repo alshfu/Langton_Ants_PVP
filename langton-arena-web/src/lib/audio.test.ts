@@ -8,7 +8,10 @@
 // 3. Тестируем что setMuted блокирует subsequent play() calls
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { fx, _resetAudioForTest } from './audio';
+import {
+  fx, _resetAudioForTest,
+  getVolumes, getMusicEffectiveGain, subscribeVolumeChanges,
+} from './audio';
 
 describe('audio fx — mute toggle', () => {
   beforeEach(() => {
@@ -251,5 +254,87 @@ describe('audio fx — WebAudio mock smoke (Day 21 layered synthesis)', () => {
       if (prevCtx) w.AudioContext = prevCtx;
       else delete (w as unknown as { AudioContext?: unknown }).AudioContext;
     }
+  });
+});
+
+describe('audio fx — Day 26 volume channels', () => {
+  beforeEach(() => {
+    _resetAudioForTest();
+  });
+
+  it('defaults: master 0.7, music 0.6, sfx 0.8', () => {
+    const v = getVolumes();
+    expect(v.master).toBe(0.7);
+    expect(v.music).toBe(0.6);
+    expect(v.sfx).toBe(0.8);
+  });
+
+  it('setVolume merges patches не задевая other channels', () => {
+    fx.setVolume({ master: 0.5 });
+    expect(getVolumes().master).toBe(0.5);
+    expect(getVolumes().music).toBe(0.6);
+    expect(getVolumes().sfx).toBe(0.8);
+    fx.setVolume({ music: 0.3, sfx: 0.9 });
+    expect(getVolumes()).toEqual({ master: 0.5, music: 0.3, sfx: 0.9 });
+  });
+
+  it('setVolume clamps each channel to [0, 1]', () => {
+    fx.setVolume({ master: -1, music: 2, sfx: 0.5 });
+    expect(getVolumes()).toEqual({ master: 0, music: 1, sfx: 0.5 });
+  });
+
+  it('volumes persist в localStorage', () => {
+    fx.setVolume({ master: 0.42, music: 0.13, sfx: 0.77 });
+    expect(window.localStorage.getItem('langton.audio.vol.master')).toBe('0.42');
+    expect(window.localStorage.getItem('langton.audio.vol.music')).toBe('0.13');
+    expect(window.localStorage.getItem('langton.audio.vol.sfx')).toBe('0.77');
+  });
+
+  it('getMusicEffectiveGain = master × music когда не muted', () => {
+    fx.setVolume({ master: 0.5, music: 0.4 });
+    expect(getMusicEffectiveGain()).toBeCloseTo(0.20, 5);
+  });
+
+  it('getMusicEffectiveGain = 0 когда muted (даже при ненулевых volumes)', () => {
+    fx.setVolume({ master: 1, music: 1 });
+    fx.setMuted(true);
+    expect(getMusicEffectiveGain()).toBe(0);
+  });
+
+  it('subscribeVolumeChanges вызывается на setVolume', () => {
+    const fn = vi.fn();
+    const unsubscribe = subscribeVolumeChanges(fn);
+    fx.setVolume({ master: 0.3 });
+    expect(fn).toHaveBeenCalledTimes(1);
+    fx.setVolume({ music: 0.2 });
+    expect(fn).toHaveBeenCalledTimes(2);
+    unsubscribe();
+    fx.setVolume({ sfx: 0.1 });
+    expect(fn).toHaveBeenCalledTimes(2); // не вызывается после unsubscribe
+  });
+
+  it('subscribeVolumeChanges вызывается на setMuted', () => {
+    const fn = vi.fn();
+    subscribeVolumeChanges(fn);
+    fx.setMuted(true);
+    expect(fn).toHaveBeenCalledTimes(1);
+    fx.setMuted(false);
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it('один listener throw не валит остальных', () => {
+    const good = vi.fn();
+    const bad = vi.fn(() => { throw new Error('bad listener'); });
+    subscribeVolumeChanges(bad);
+    subscribeVolumeChanges(good);
+    expect(() => fx.setVolume({ master: 0.1 })).not.toThrow();
+    expect(good).toHaveBeenCalledTimes(1);
+  });
+
+  it('после reset: defaults + empty localStorage', () => {
+    fx.setVolume({ master: 0.1, music: 0.2, sfx: 0.3 });
+    _resetAudioForTest();
+    expect(getVolumes()).toEqual({ master: 0.7, music: 0.6, sfx: 0.8 });
+    expect(window.localStorage.getItem('langton.audio.vol.master')).toBeNull();
   });
 });

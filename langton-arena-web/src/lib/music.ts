@@ -22,7 +22,7 @@
 //
 // Уважаем audio.ts mute toggle — если fx.isMuted() → music тоже muted.
 
-import { fx } from './audio';
+import { fx, getMusicEffectiveGain, subscribeVolumeChanges } from './audio';
 
 export type MusicMood = 'neutral' | 'winning' | 'losing';
 
@@ -169,6 +169,8 @@ export class MusicEngine {
   private nextStepTime = 0;
   private currentStep = 0;
   private schedulerHandle: ReturnType<typeof setInterval> | null = null;
+  // Day 26: unsubscribe из volume changes — called в stop().
+  private volumeUnsubscribe: (() => void) | null = null;
 
   /** Lazy create AudioContext + bus topology. Возвращает true если success. */
   private ensureContext(): boolean {
@@ -184,7 +186,8 @@ export class MusicEngine {
       const c = new AC();
       this.ctx = c;
       this.masterGain = c.createGain();
-      this.masterGain.gain.value = 0.4;
+      // Day 26: master = 0.55 × effective music gain (master × music из fx).
+      this.masterGain.gain.value = 0.55 * getMusicEffectiveGain();
       this.masterGain.connect(c.destination);
 
       // Bus per layer (independent gain stages для smooth intensity transitions)
@@ -219,6 +222,21 @@ export class MusicEngine {
     this.currentStep = 0;
     this.nextStepTime = c.currentTime + 0.05; // tiny offset чтобы первое событие в будущем
     this.schedulerHandle = setInterval(() => this.tick(), SCHEDULER_INTERVAL_MS);
+    // Day 26: подписываемся на volume changes
+    if (!this.volumeUnsubscribe) {
+      this.volumeUnsubscribe = subscribeVolumeChanges(() => this.applyVolume());
+    }
+  }
+
+  /** Day 26: re-apply effective master gain на change. Linear ramp 150ms. */
+  private applyVolume(): void {
+    if (!this.ctx || !this.masterGain) return;
+    const now = this.ctx.currentTime;
+    const target = 0.55 * getMusicEffectiveGain();
+    try {
+      this.masterGain.gain.cancelScheduledValues(now);
+      this.masterGain.gain.linearRampToValueAtTime(target, now + 0.15);
+    } catch { /* */ }
   }
 
   /** Stop the loop + cancel scheduled notes via clearing oscillators (they auto-stop). */
@@ -228,6 +246,11 @@ export class MusicEngine {
     if (this.schedulerHandle != null) {
       clearInterval(this.schedulerHandle);
       this.schedulerHandle = null;
+    }
+    // Day 26: unsubscribe из volume changes
+    if (this.volumeUnsubscribe) {
+      this.volumeUnsubscribe();
+      this.volumeUnsubscribe = null;
     }
     // Уже scheduled осcillator'ы доиграют свои короткие envelope'ы — это OK.
     // Долгий pad может звучать ещё ~1 секунду — приемлемо как fade-out.

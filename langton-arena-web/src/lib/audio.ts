@@ -37,7 +37,11 @@ export type SoundId =
   | 'tie'              // FM bell, neutral но богатый обертонами
   | 'ui_click';        // Day 22: soft tactile click для UI buttons (light deploy)
 
+// Day 26: per-channel volume keys. Все [0..1] floats.
 const MUTE_STORAGE_KEY = 'langton.audio.muted';
+const VOL_MASTER_KEY = 'langton.audio.vol.master';
+const VOL_MUSIC_KEY = 'langton.audio.vol.music';
+const VOL_SFX_KEY = 'langton.audio.vol.sfx';
 
 function readMutedFromStorage(): boolean {
   try {
@@ -53,6 +57,24 @@ function writeMutedToStorage(v: boolean): void {
   } catch { /* localStorage может быть disabled — silently no-op */ }
 }
 
+function readVolumeFromStorage(key: string, defaultValue: number): number {
+  try {
+    if (typeof window === 'undefined') return defaultValue;
+    const raw = window.localStorage.getItem(key);
+    if (raw == null) return defaultValue;
+    const v = parseFloat(raw);
+    if (!Number.isFinite(v)) return defaultValue;
+    return Math.max(0, Math.min(1, v));
+  } catch { return defaultValue; }
+}
+
+function writeVolumeToStorage(key: string, v: number): void {
+  try {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(key, String(v));
+  } catch { /* */ }
+}
+
 let muted: boolean = readMutedFromStorage();
 let ctx: AudioContext | null = null;
 const refs: {
@@ -60,7 +82,25 @@ const refs: {
   dryBus: GainNode | null;   // direct path
   wetBus: GainNode | null;   // reverb send
 } = { masterGain: null, dryBus: null, wetBus: null };
-let masterVolume = 0.5;
+
+// Day 26: 3 channels (master, music, sfx). Master is overall volume.
+// SFX = effective gain для audio.ts effects (deploy, victory, ui_click...).
+// Music = effective gain для music.ts engine (multiplied internally by master).
+let masterVolume = readVolumeFromStorage(VOL_MASTER_KEY, 0.7);
+let musicVolume = readVolumeFromStorage(VOL_MUSIC_KEY, 0.6);
+let sfxVolume = readVolumeFromStorage(VOL_SFX_KEY, 0.8);
+// Listeners — music engine subscribes на volume changes чтобы apply'нуть.
+const volumeListeners: Array<() => void> = [];
+function notifyVolumeListeners(): void {
+  for (const fn of volumeListeners) {
+    try { fn(); } catch { /* */ }
+  }
+}
+function applyEffectiveSfxGain(): void {
+  if (refs.masterGain) {
+    refs.masterGain.gain.value = masterVolume * sfxVolume;
+  }
+}
 
 /**
  * Generate synthesized reverb impulse response: exponentially decayed
@@ -92,7 +132,7 @@ function getCtx(): AudioContext | null {
   try {
     ctx = new AC();
     const master = ctx.createGain();
-    master.gain.value = masterVolume;
+    master.gain.value = masterVolume * sfxVolume;
     master.connect(ctx.destination);
 
     const dry = ctx.createGain();
@@ -375,18 +415,53 @@ export const fx: AudioApi = {
   setMuted: (v) => {
     muted = v;
     writeMutedToStorage(v);
+    notifyVolumeListeners();
   },
   isMuted: () => muted,
   setVolume: (patch) => {
+    let changed = false;
     if (typeof patch.master === 'number') {
       masterVolume = Math.max(0, Math.min(1, patch.master));
-      if (refs.masterGain) {
-        refs.masterGain.gain.value = masterVolume;
-      }
+      writeVolumeToStorage(VOL_MASTER_KEY, masterVolume);
+      changed = true;
+    }
+    if (typeof patch.music === 'number') {
+      musicVolume = Math.max(0, Math.min(1, patch.music));
+      writeVolumeToStorage(VOL_MUSIC_KEY, musicVolume);
+      changed = true;
+    }
+    if (typeof patch.sfx === 'number') {
+      sfxVolume = Math.max(0, Math.min(1, patch.sfx));
+      writeVolumeToStorage(VOL_SFX_KEY, sfxVolume);
+      changed = true;
+    }
+    if (changed) {
+      applyEffectiveSfxGain();
+      notifyVolumeListeners();
     }
   },
   play: playSound,
 };
+
+// Day 26: API расширенный — getters + listener subscription для music engine.
+export function getVolumes(): { master: number; music: number; sfx: number } {
+  return { master: masterVolume, music: musicVolume, sfx: sfxVolume };
+}
+
+/** Effective master multiplier для music engine. */
+export function getMusicEffectiveGain(): number {
+  if (muted) return 0;
+  return masterVolume * musicVolume;
+}
+
+/** Subscribe на изменения volume/mute. Returns unsubscribe function. */
+export function subscribeVolumeChanges(fn: () => void): () => void {
+  volumeListeners.push(fn);
+  return () => {
+    const i = volumeListeners.indexOf(fn);
+    if (i >= 0) volumeListeners.splice(i, 1);
+  };
+}
 
 if (typeof window !== 'undefined') {
   (window as unknown as { fx: AudioApi }).fx = fx;
@@ -399,6 +474,14 @@ export function _resetAudioForTest(): void {
   refs.masterGain = null;
   refs.dryBus = null;
   refs.wetBus = null;
-  masterVolume = 0.5;
-  try { window?.localStorage?.removeItem(MUTE_STORAGE_KEY); } catch { /* */ }
+  masterVolume = 0.7;
+  musicVolume = 0.6;
+  sfxVolume = 0.8;
+  volumeListeners.length = 0;
+  try {
+    window?.localStorage?.removeItem(MUTE_STORAGE_KEY);
+    window?.localStorage?.removeItem(VOL_MASTER_KEY);
+    window?.localStorage?.removeItem(VOL_MUSIC_KEY);
+    window?.localStorage?.removeItem(VOL_SFX_KEY);
+  } catch { /* */ }
 }

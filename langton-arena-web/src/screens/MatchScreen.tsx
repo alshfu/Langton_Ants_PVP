@@ -30,6 +30,7 @@ import { computeScoreboard, type ScoreboardSummary } from '@lib/computeScoreboar
 import { hasSeenHint, markHintSeen, type HintId } from '@lib/onboarding';
 import { OnboardingHint } from '@components/OnboardingHint';
 import { music, moodFromDelta } from '@lib/music';
+import { VolumePanel } from '@components/VolumePanel';
 
 type MatchPhase = 'connecting' | 'lobby' | 'countdown' | 'playing' | 'finished' | 'error';
 
@@ -131,6 +132,9 @@ export function MatchScreen() {
   // Day 18: mute toggle for in-match audio. Persists в localStorage через fx.
   const [muted, setMuted] = useState<boolean>(fx.isMuted());
   const lastBeepSecRef = useRef<number>(-1);
+  // Day 26: volume panel popover state. anchor stores button coords чтобы
+  // позиционировать popover. null → закрыт.
+  const [volumePanel, setVolumePanel] = useState<{ right: number; top: number } | null>(null);
   // Day 20: live scoreboard updated на каждый engine tick.
   const [scoreboard, setScoreboard] = useState<ScoreboardSummary | null>(null);
   // Day 23: rematch state. iRequestedRematch = клик "Play Again"; opp = тоже.
@@ -187,12 +191,10 @@ export function MatchScreen() {
     }
   }, [phase, matchResult]);
 
-  // Day 18: mute toggle helper — синхронизирует state + fx.
-  const toggleMute = useCallback(() => {
-    const next = !fx.isMuted();
-    fx.setMuted(next);
-    setMuted(next);
-  }, []);
+  // Day 26: mute теперь управляется через VolumePanel popover (см. mute-toggle
+  // button onClick). Локальное состояние `muted` синкается через setMuted после
+  // panel close. setMuted сохраняется в state для иконки 🔊/🔇.
+  // Day 18 toggleMute removed.
 
   // Day 24: показываем contextual hint на phase entry если ещё не видели.
   // Reactив на phase. markHintSeen вызывается в dismissActiveHint.
@@ -212,12 +214,20 @@ export function MatchScreen() {
     setActiveHint(null);
   }, [activeHint]);
 
-  // Day 25: dynamic gameplay music. Start на playing, stop на остальных
-  // phase'ах. Intensity растёт с tick progress (0..1) + bonus от близости
-  // scoreboard. Mood выводится из моего lead/deficit в территории.
+  // Day 25/26: dynamic music через все игровые phase'ы.
+  // - lobby: pad-only ambient (intensity 0.1)
+  // - countdown: buildup (intensity 0.3)
+  // - playing: full Day 25 dynamic logic
+  // - finished/error/connecting: stop
   useEffect(() => {
-    if (phase === 'playing') {
+    if (phase === 'lobby' || phase === 'countdown' || phase === 'playing') {
       music.start();
+      if (phase === 'lobby') {
+        music.setMood('neutral');
+        music.setIntensity(0.1);  // ambient pad для lobby
+      } else if (phase === 'countdown') {
+        music.setIntensity(0.3);  // pre-match buildup
+      }
     } else {
       music.stop();
     }
@@ -234,7 +244,7 @@ export function MatchScreen() {
     const tickProgress = Math.min(1, stepSignal / threshold);
     // Базовая intensity растёт с прогрессом матча. Last 20% — full intensity
     // (climactic finale). Bonus +0.15 если матч близкий (delta < 5%).
-    let intensity = 0.2 + tickProgress * 0.7;
+    let intensity = 0.4 + tickProgress * 0.5;
     if (tickProgress > 0.8) intensity = 1;
     const myIdx = myPlayerIdxRef.current;
     if (myIdx != null) {
@@ -243,7 +253,6 @@ export function MatchScreen() {
       if (myEntry && oppEntry) {
         const delta = Math.abs(myEntry.percent - oppEntry.percent);
         if (delta < 5) intensity = Math.min(1, intensity + 0.15);
-        // Mood — winning если веду на > 4%, losing если отстаю
         music.setMood(moodFromDelta(myEntry.percent, oppEntry.percent));
       }
     }
@@ -639,13 +648,19 @@ export function MatchScreen() {
               👤 {nicknameRef.current}
             </Chip>
           )}
-          {/* Day 18: speaker icon toggle. Click → fx.setMuted. */}
+          {/* Day 18/26: speaker icon → opens VolumePanel popover (Day 26).
+              Click also toggles muted state синхронизированы. */}
           <button
             type="button"
-            onClick={toggleMute}
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              setVolumePanel({ right: r.right, top: r.top });
+              // Sync local muted state — VolumePanel может изменить через checkbox
+              setMuted(fx.isMuted());
+            }}
             data-testid="mute-toggle"
-            aria-label={muted ? t('match.unmute', 'Unmute') : t('match.mute', 'Mute')}
-            title={muted ? t('match.unmute', 'Unmute') : t('match.mute', 'Mute')}
+            aria-label={t('match.audio', 'Audio settings')}
+            title={t('match.audio', 'Audio settings')}
             style={{
               display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
               width: 32, height: 28, padding: 0,
@@ -730,6 +745,18 @@ export function MatchScreen() {
           <ErrorView t={t} T={T} text={errorText} onBack={goBack} />
         )}
       </div>
+
+      {/* Day 26: volume panel popover (3 sliders + mute toggle) */}
+      {volumePanel && (
+        <VolumePanel
+          anchorRight={volumePanel.right}
+          anchorTop={volumePanel.top}
+          onClose={() => {
+            setVolumePanel(null);
+            setMuted(fx.isMuted()); // sync icon после close
+          }}
+        />
+      )}
 
       {/* Day 24: contextual onboarding hint — показывается один раз ever per
           hint id. activeHint computed в useEffect от phase. */}
