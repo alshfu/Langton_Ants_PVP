@@ -56,6 +56,10 @@ import { canDeploy } from '@langton/core';
 import { MatchBanner } from '@components/MatchBanner';
 import { fx } from '@lib/audio';
 import { VolumePanel } from '@components/VolumePanel';
+import { music, moodFromDelta } from '@lib/music';
+import { computeScoreboard, type ScoreboardSummary } from '@lib/computeScoreboard';
+import { detectMilestones, type Milestone, type MilestoneId } from '@lib/matchMilestones';
+import { MilestoneBanner } from '@components/MilestoneBanner';
 
 // ─── Stage 7.4: Media controls subcomponents ─────────────────────────────────
 
@@ -178,6 +182,97 @@ export function SandboxScreen() {
   }, [liveStats.match.finished, liveStats.match.winnerId]);
   // Day 26: mute toggle button opens VolumePanel popover instead of immediate mute.
   const [volumePanel, setVolumePanel] = useState<{ right: number; top: number } | null>(null);
+  // Day 28: scoreboard для music intensity + milestone detection.
+  const [scoreboard, setScoreboard] = useState<ScoreboardSummary | null>(null);
+  // Day 28: milestone banner + refs (same pattern как MatchScreen).
+  const [activeMilestone, setActiveMilestone] = useState<Milestone | null>(null);
+  const prevScoreboardRef = useRef<ScoreboardSummary | null>(null);
+  const firedMilestonesRef = useRef<Set<MilestoneId>>(new Set());
+
+  // Day 28: dynamic music engine wire. Sandbox-specific rules:
+  // - Start ТОЛЬКО когда mode=run и не paused (живая симуляция)
+  // - Edit/playback/paused — stop
+  // - Reset milestone tracking при смене mode
+  useEffect(() => {
+    if (rt.mode === 'run' && !rt.paused) {
+      music.start();
+    } else {
+      music.stop();
+      // Reset milestone tracking — пользователь переключил mode, fresh start
+      if (rt.mode === 'edit' || rt.mode === 'playback') {
+        firedMilestonesRef.current.clear();
+        prevScoreboardRef.current = null;
+        setActiveMilestone(null);
+      }
+    }
+    return () => music.stop();
+  }, [rt.mode, rt.paused]);
+
+  // Day 28: intensity + mood + milestone detection из scoreboard.
+  // Perspective player в Sandbox — это rt.activePlayerId (тот кого user
+  // контролирует через UI). Если null — пропускаем milestones, music
+  // intensity использует overall match progress.
+  useEffect(() => {
+    if (rt.mode !== 'run' || !scoreboard) return;
+
+    // Compute tick progress (если есть time-based win condition)
+    const winCond = cfg.winCondition;
+    const threshold = winCond.kind === 'time' ? winCond.threshold : 300;
+    const tickProgress = Math.min(1, statsTick / threshold);
+    let intensity = 0.4 + tickProgress * 0.5;
+    if (tickProgress > 0.8) intensity = 1;
+
+    // Active player perspective
+    const activeIdx = rt.activePlayerId
+      ? cfg.players.findIndex((p) => p.id === rt.activePlayerId)
+      : -1;
+
+    if (activeIdx >= 0) {
+      const myEntry = scoreboard.entries.find((e) => e.playerIdx === activeIdx);
+      // "Opponent" = лучший среди не-меня (для multi-player комфортно)
+      const oppEntry = scoreboard.entries
+        .filter((e) => e.playerIdx !== activeIdx)
+        .sort((a, b) => b.cells - a.cells)[0];
+
+      if (myEntry && oppEntry) {
+        const delta = Math.abs(myEntry.percent - oppEntry.percent);
+        if (delta < 5) intensity = Math.min(1, intensity + 0.15);
+        music.setMood(moodFromDelta(myEntry.percent, oppEntry.percent));
+      }
+
+      // Milestone detection
+      const events = detectMilestones(prevScoreboardRef.current, scoreboard, activeIdx);
+      if (events.length > 0) {
+        const order: MilestoneId[] = ['lead_change', 'crossed_75_up', 'crossed_50_up', 'crossed_25_down'];
+        const sorted = events.slice().sort((a, b) =>
+          order.indexOf(a.id) - order.indexOf(b.id),
+        );
+        for (const ev of sorted) {
+          if (firedMilestonesRef.current.has(ev.id)) continue;
+          firedMilestonesRef.current.add(ev.id);
+          setActiveMilestone(ev);
+          const soundId =
+            ev.id === 'crossed_50_up'   ? 'stinger_lead'
+            : ev.id === 'crossed_75_up' ? 'stinger_dominance'
+            : ev.id === 'crossed_25_down' ? 'stinger_critical'
+            : 'stinger_comeback';
+          fx.play(soundId);
+          break;
+        }
+      }
+    } else {
+      // No active player — neutral mood, no milestones
+      music.setMood('neutral');
+    }
+
+    prevScoreboardRef.current = scoreboard;
+    music.setIntensity(intensity);
+  }, [rt.mode, rt.activePlayerId, scoreboard, statsTick, cfg.players, cfg.winCondition]);
+
+  // Day 28: при switchToEdit clear scoreboard чтобы intensity не торчала.
+  useEffect(() => {
+    if (rt.mode === 'edit') setScoreboard(null);
+  }, [rt.mode]);
 
   // Stage 4: events + heatmap в refs (часто меняются, не должны re-render всё)
   const eventsRef = useRef<LogEvent[]>([]);
@@ -738,6 +833,15 @@ export function SandboxScreen() {
 
     const cellCounts = computeCellCountsByOwner(sim);
     const aliveByOwner = computeAliveAntsByOwner(sim);
+    // Day 28: compute scoreboard для music + milestone detection.
+    // Только в run mode — в edit/playback не нужно overhead'а.
+    if (rt.mode === 'run') {
+      setScoreboard(computeScoreboard(
+        sim,
+        cfg.players.map((p) => ({ id: p.id, name: p.name })),
+        cfg.players.map((p) => p.color),
+      ));
+    }
     // Stage 5: считаем живых мутантов на игрока
     const mutantsAliveByOwner = new Map<number, number>();
     for (const a of sim.ants) {
@@ -1201,6 +1305,14 @@ export function SandboxScreen() {
             setVolumePanel(null);
             setMuted(fx.isMuted());
           }}
+        />
+      )}
+
+      {/* Day 28: milestone banner — territory thresholds для active player */}
+      {activeMilestone && (
+        <MilestoneBanner
+          milestone={activeMilestone}
+          onDismiss={() => setActiveMilestone(null)}
         />
       )}
 
