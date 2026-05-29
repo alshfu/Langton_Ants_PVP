@@ -255,7 +255,14 @@ export function MatchScreen() {
             }
             // Non-deploy errors: keep existing behaviour (banner / fatal).
             setErrorText(msg.message);
-            if (msg.code === 'ROOM_FULL' || msg.code === 'ROOM_NOT_FOUND') {
+            // Day 15: ROOM_TIMEOUT + SERVER_SHUTDOWN тоже fatal — пользователь
+            // в lobby не дождался оппонента / сервер пошёл на reboot.
+            if (
+              msg.code === 'ROOM_FULL' ||
+              msg.code === 'ROOM_NOT_FOUND' ||
+              msg.code === 'ROOM_TIMEOUT' ||
+              msg.code === 'SERVER_SHUTDOWN'
+            ) {
               setPhase('error');
             }
             break;
@@ -890,6 +897,8 @@ function FinishedView({
       case 'time_expired': return t('match.reason.timeExpired', 'Time expired — territory leader wins');
       case 'time_expired_tie': return t('match.reason.timeTie', 'Time expired — territory tied');
       case 'forced': return t('match.reason.disconnect', 'Opponent disconnected');
+      case 'opponent_disconnected': return t('match.reason.opponentLeft', 'Opponent left the match');
+      case 'server_shutdown': return t('match.reason.shutdown', 'Server is restarting — match cut short');
       default: return result.reason;
     }
   })();

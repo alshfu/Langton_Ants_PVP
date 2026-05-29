@@ -69,6 +69,40 @@ export function cancelMatchCountdown(room: Room): void {
   }
 }
 
+/**
+ * Day 15: вооружить orphan-lobby таймер. Если в room <2 живых connections
+ * за `lobbyTimeoutMs` ms — оставшемуся player'у шлём ROOM_TIMEOUT + cleanup.
+ * Idempotent: повторный вызов с активным таймером — no-op.
+ */
+export function armLobbyTimeout(room: Room, ctx: ServerContext): void {
+  if (room.lobbyTimeoutHandle) return; // уже armed
+  if (room.status !== 'lobby') return; // не в lobby — не нужен
+  room.lobbyTimeoutHandle = setTimeout(() => {
+    room.lobbyTimeoutHandle = null;
+    // Re-check: если за это время появился 2-й — abort
+    if (room.players.filter((p) => !p.disconnected).length >= 2) return;
+    // Notify оставшихся
+    for (const p of room.players) {
+      if (!p.disconnected) p.sendError(ERROR_CODES.ROOM_TIMEOUT);
+    }
+    // Cleanup: rooms.delete + leaveCurrentRoom для каждого
+    for (const p of [...room.players]) {
+      p.roomCode = null;
+      p.ready = false;
+    }
+    room.players.length = 0;
+    ctx.rooms.delete(room.code);
+  }, ctx.lobbyTimeoutMs);
+}
+
+/** Disarm timer (когда 2-й присоединился или match закончился). */
+export function disarmLobbyTimeout(room: Room): void {
+  if (room.lobbyTimeoutHandle) {
+    clearTimeout(room.lobbyTimeoutHandle);
+    room.lobbyTimeoutHandle = null;
+  }
+}
+
 /** Завершить активный match (force end + cleanup).
  *  Day 13: также cleanup всех grace timers (если кто-то disconnected — теперь
  *  no-op, матч уже закончился). */

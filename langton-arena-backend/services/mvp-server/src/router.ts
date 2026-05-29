@@ -11,6 +11,8 @@ import { isValidNickname } from './nicknames.js';
 import {
   startMatchCountdown,
   cancelMatchCountdown,
+  armLobbyTimeout,
+  disarmLobbyTimeout,
   endActiveMatch,
 } from './matchLifecycle.js';
 
@@ -166,6 +168,15 @@ function handleJoinRoom(
     return;
   }
 
+  // Day 15: lobby timeout management.
+  // - 1-й player → armLobbyTimeout (10 мин)
+  // - 2-й player → disarm (есть пара)
+  if (room.players.length >= 2) {
+    disarmLobbyTimeout(room);
+  } else {
+    armLobbyTimeout(room, ctx);
+  }
+
   conn.send({
     type: 'room_joined',
     roomCode: room.code,
@@ -313,8 +324,13 @@ export function leaveCurrentRoom(conn: Connection, ctx: ServerContext): void {
       room.activeMatch.stop();
     }
     room.activeMatch = null;
+    // Day 15: empty room → cleanup lobby timer (room полностью исчезает)
+    disarmLobbyTimeout(room);
     ctx.rooms.delete(room.code);
   } else {
+    // Day 15: <2 players → re-arm lobby timeout (если status=lobby).
+    // Это случается когда countdown был cancelled и оппонент ушёл.
+    if (room.status === 'lobby') armLobbyTimeout(room, ctx);
     room.broadcast({
       type: 'room_updated',
       players: room.getPlayerInfos(),

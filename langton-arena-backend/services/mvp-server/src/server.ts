@@ -25,6 +25,8 @@ export interface MvpServerOptions {
   matchTickIntervalMs?: number;
   /** Day 13: grace ms для reconnect. Default 15000. Test override: 100. */
   graceDisconnectMs?: number;
+  /** Day 15: orphan lobby timeout. Default 600000 (10 мин). Test: 100. */
+  lobbyTimeoutMs?: number;
 }
 
 export class MvpServer {
@@ -49,6 +51,7 @@ export class MvpServer {
       matchCountdownMs: opts.matchCountdownMs,
       matchTickIntervalMs: opts.matchTickIntervalMs,
       graceDisconnectMs: opts.graceDisconnectMs,
+      lobbyTimeoutMs: opts.lobbyTimeoutMs,
     });
   }
 
@@ -94,16 +97,36 @@ export class MvpServer {
 
   async stop(): Promise<void> {
     if (!this.wss) return;
-    // Stop all active matches first (prevents tick interval leaks after server shutdown)
+    // Day 15: graceful shutdown — сначала уведомляем активные матчи через
+    // match_ended (reason='server_shutdown'), чтобы клиенты показали
+    // понятный banner вместо "connection lost".
     for (const room of this.ctx.rooms.all) {
-      if (room.activeMatch) room.activeMatch.stop();
+      if (room.activeMatch && !room.activeMatch.isFinished) {
+        // endWith → finishAndBroadcast → match_ended (reason='server_shutdown')
+        room.activeMatch.endWith(null, 'server_shutdown');
+      } else if (room.activeMatch) {
+        room.activeMatch.stop();
+      }
       if (room.countdownHandle) {
         clearTimeout(room.countdownHandle);
         room.countdownHandle = null;
+        // Также уведомляем клиентов в countdown — они ждали match_started
+        // которого не будет. Шлём error чтобы UI вернулся в lobby/error.
+        room.broadcast({
+          type: 'error',
+          code: 'SERVER_SHUTDOWN',
+          message: 'Server is shutting down',
+          locale: 'en',
+        });
       }
       // Day 13: clear pending grace timers — иначе они выстрелят после shutdown
       for (const timer of room.graceTimers.values()) clearTimeout(timer);
       room.graceTimers.clear();
+      // Day 15: clear room timeout если active
+      if (room.lobbyTimeoutHandle) {
+        clearTimeout(room.lobbyTimeoutHandle);
+        room.lobbyTimeoutHandle = null;
+      }
     }
     for (const conn of this.connections) {
       conn.close('server-shutdown');

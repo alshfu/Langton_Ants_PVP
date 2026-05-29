@@ -28,6 +28,10 @@ export class Room {
   /** Day 13: grace timers keyed by resumeToken. При disconnect mid-match
    *  ставим таймер — если истёк до resume, forfeit. */
   graceTimers: Map<string, NodeJS.Timeout> = new Map();
+  /** Day 15: orphan-lobby timer handle. Armed когда в room <2 live
+   *  connections и status='lobby'. Если за `lobbyTimeoutMs` (default 10 мин)
+   *  второй player не пришёл — ROOM_TIMEOUT + close room. */
+  lobbyTimeoutHandle: NodeJS.Timeout | null = null;
 
   constructor(code: string) {
     this.code = code;

@@ -610,3 +610,122 @@ describe('MvpServer · Day 13 reconnect', () => {
     b.ws.close();
   });
 });
+
+// ─── Day 15 — Edge cases (server shutdown, orphan lobby timeout) ─────────────
+
+describe('MvpServer · Day 15 edge cases', () => {
+  it('server.stop() во время match → match_ended broadcast (reason=server_shutdown)', async () => {
+    const fastServer = new MvpServer({
+      port: 0,
+      logger: () => { /* silent */ },
+      matchCountdownMs: 30,
+      matchTickIntervalMs: 5,
+    });
+    const { host, port } = await fastServer.start();
+    const url = `ws://${host}:${port}`;
+
+    const a = await openClient(url);
+    const b = await openClient(url);
+    a.ws.send(JSON.stringify({ type: 'join_room', roomCode: 'r', nickname: 'A', locale: 'en' }));
+    b.ws.send(JSON.stringify({ type: 'join_room', roomCode: 'r', nickname: 'B', locale: 'en' }));
+    await a.inbox.waitFor((m) => m.type === 'room_updated' && (m as any).players.length === 2);
+    a.ws.send(JSON.stringify({ type: 'set_ready', ready: true }));
+    b.ws.send(JSON.stringify({ type: 'set_ready', ready: true }));
+    await b.inbox.waitFor((m) => m.type === 'match_started', 500);
+    // Server graceful shutdown
+    await fastServer.stop();
+    // Клиенту должен прийти match_ended с reason='server_shutdown' ДО close.
+    const found = a.inbox.msgs.find(
+      (m) => m.type === 'match_ended' && (m as any).result.reason === 'server_shutdown',
+    );
+    expect(found).toBeDefined();
+    a.ws.close(); b.ws.close();
+  });
+
+  it('orphan lobby (1 player, no opponent) → ROOM_TIMEOUT после lobbyTimeoutMs', async () => {
+    const fastServer = new MvpServer({
+      port: 0,
+      logger: () => { /* silent */ },
+      matchCountdownMs: 30,
+      matchTickIntervalMs: 5,
+      lobbyTimeoutMs: 80, // короткий для теста
+    });
+    const { host, port } = await fastServer.start();
+    const url = `ws://${host}:${port}`;
+    const a = await openClient(url);
+    a.ws.send(JSON.stringify({ type: 'join_room', roomCode: 'r', nickname: 'A', locale: 'en' }));
+    await a.inbox.waitFor((m) => m.type === 'room_joined', 500);
+    // Ждём timeout — должен прийти ROOM_TIMEOUT error
+    const err = await a.inbox.waitFor(
+      (m) => m.type === 'error' && (m as any).code === 'ROOM_TIMEOUT',
+      500,
+    );
+    expect((err as any).code).toBe('ROOM_TIMEOUT');
+    a.ws.close();
+    await fastServer.stop();
+  });
+
+  it('2-й игрок присоединяется до timeout → no ROOM_TIMEOUT', async () => {
+    const fastServer = new MvpServer({
+      port: 0,
+      logger: () => { /* silent */ },
+      matchCountdownMs: 30,
+      matchTickIntervalMs: 5,
+      lobbyTimeoutMs: 200,
+    });
+    const { host, port } = await fastServer.start();
+    const url = `ws://${host}:${port}`;
+    const a = await openClient(url);
+    a.ws.send(JSON.stringify({ type: 'join_room', roomCode: 'r', nickname: 'A', locale: 'en' }));
+    await a.inbox.waitFor((m) => m.type === 'room_joined', 500);
+    // 2-й через 50ms (до timeout=200)
+    await new Promise((r) => setTimeout(r, 50));
+    const b = await openClient(url);
+    b.ws.send(JSON.stringify({ type: 'join_room', roomCode: 'r', nickname: 'B', locale: 'en' }));
+    await b.inbox.waitFor((m) => m.type === 'room_joined', 500);
+    // Подождём ещё 250ms (> timeout if не disarmed)
+    await new Promise((r) => setTimeout(r, 250));
+    // ROOM_TIMEOUT не должен прилететь A
+    const timeoutErr = a.inbox.msgs.find(
+      (m) => m.type === 'error' && (m as any).code === 'ROOM_TIMEOUT',
+    );
+    expect(timeoutErr).toBeUndefined();
+    a.ws.close(); b.ws.close();
+    await fastServer.stop();
+  });
+
+  it('disconnect 2-го во время countdown → cancel, 1-й видит room_updated с 1 player', async () => {
+    const fastServer = new MvpServer({
+      port: 0,
+      logger: () => { /* silent */ },
+      matchCountdownMs: 100, // даём время отменить
+      matchTickIntervalMs: 5,
+      lobbyTimeoutMs: 100_000,
+    });
+    const { host, port } = await fastServer.start();
+    const url = `ws://${host}:${port}`;
+
+    const a = await openClient(url);
+    const b = await openClient(url);
+    a.ws.send(JSON.stringify({ type: 'join_room', roomCode: 'r', nickname: 'A', locale: 'en' }));
+    b.ws.send(JSON.stringify({ type: 'join_room', roomCode: 'r', nickname: 'B', locale: 'en' }));
+    await a.inbox.waitFor((m) => m.type === 'room_updated' && (m as any).players.length === 2);
+    a.ws.send(JSON.stringify({ type: 'set_ready', ready: true }));
+    b.ws.send(JSON.stringify({ type: 'set_ready', ready: true }));
+    await a.inbox.waitFor((m) => m.type === 'match_starting', 500);
+    // B уходит во время countdown (до match_started)
+    b.ws.close();
+    // A должен получить room_updated с 1 player (countdown cancelled, status=lobby)
+    const update = await a.inbox.waitFor(
+      (m) => m.type === 'room_updated' && (m as any).players.length === 1,
+      300,
+    );
+    expect((update as any).players[0].nickname).toBe('A');
+    // match_started НЕ должен прийти — countdown cancelled
+    await new Promise((r) => setTimeout(r, 150));
+    const started = a.inbox.msgs.find((m) => m.type === 'match_started');
+    expect(started).toBeUndefined();
+    a.ws.close();
+    await fastServer.stop();
+  });
+});

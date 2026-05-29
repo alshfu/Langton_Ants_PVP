@@ -23,6 +23,8 @@ export interface ServerContext {
   /** Day 13: grace period для reconnect mid-match. Default 15000ms.
    *  Test override: 100. */
   graceDisconnectMs: number;
+  /** Day 15: orphan lobby timeout. Default 600000 (10 минут). Test: 100. */
+  lobbyTimeoutMs: number;
 }
 
 export function defaultSeedFn(): number {
@@ -41,5 +43,6 @@ export function makeContext(opts: Partial<ServerContext> = {}): ServerContext {
     seedFn: opts.seedFn ?? defaultSeedFn,
     matchIdFn: opts.matchIdFn ?? defaultMatchIdFn,
     graceDisconnectMs: opts.graceDisconnectMs ?? 15_000,
+    lobbyTimeoutMs: opts.lobbyTimeoutMs ?? 600_000,
   };
 }
