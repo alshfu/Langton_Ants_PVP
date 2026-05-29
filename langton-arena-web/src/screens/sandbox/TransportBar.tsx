@@ -9,6 +9,7 @@ import { useAppState } from '@state/AppStateProvider';
 import { Button } from '@ui/Button';
 import { Slider } from '@ui/Slider';
 import { Eyebrow } from '@ui/Eyebrow';
+import { fx } from '@lib/audio';
 
 interface TransportBarProps {
   /** Шаг вперёд на N тиков (1 — обычный, можно больше). */
@@ -63,6 +64,7 @@ export function TransportBar({
         onClick={() => {
           if (inEdit) onRun();
           else sx.setPaused(!rt.paused);
+          fx.play('ui_click');
         }}
       >
         {inEdit ? '▶ Run' : (rt.paused ? '▶ Play' : '⏸ Pause')}

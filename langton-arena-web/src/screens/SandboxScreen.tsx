@@ -54,6 +54,7 @@ import { computeAllHighlights } from '@lib/computeHighlights';
 import { computeMatchResult } from '@lib/computeMatchResult';
 import { canDeploy } from '@langton/core';
 import { MatchBanner } from '@components/MatchBanner';
+import { fx } from '@lib/audio';
 
 // ─── Stage 7.4: Media controls subcomponents ─────────────────────────────────
 
@@ -159,6 +160,26 @@ export function SandboxScreen() {
     highlights: [],
     match: emptyMatch(),
   }));
+
+  // Day 22: audio mute toggle для Sandbox (синхронизирован с глобальным fx state)
+  const [muted, setMuted] = useState<boolean>(() => fx.isMuted());
+  const lastMatchFinishedRef = useRef<boolean>(false);
+  // Когда liveStats.match переходит из not-finished в finished — играем
+  // победный или ничейный звук. В Sandbox нет "своего" игрока, поэтому
+  // победа любого игрока = victory (cheerful), draw = tie.
+  useEffect(() => {
+    const finished = liveStats.match.finished;
+    if (finished && !lastMatchFinishedRef.current) {
+      if (liveStats.match.winnerId) fx.play('victory');
+      else fx.play('tie');
+    }
+    lastMatchFinishedRef.current = finished;
+  }, [liveStats.match.finished, liveStats.match.winnerId]);
+  const toggleMute = useCallback(() => {
+    const next = !fx.isMuted();
+    fx.setMuted(next);
+    setMuted(next);
+  }, []);
 
   // Stage 4: events + heatmap в refs (часто меняются, не должны re-render всё)
   const eventsRef = useRef<LogEvent[]>([]);
@@ -382,6 +403,7 @@ export function SandboxScreen() {
     replayStartConfigRef.current = structuredClone(cfg);
     sx.setMode('run');
     sx.setPaused(false);
+    fx.play('ui_click');
   }, [validateBeforeRun, sx, showToast, cfg]);
 
   const switchToEdit = useCallback(() => {
@@ -448,6 +470,7 @@ export function SandboxScreen() {
       setCanStepBack(snapshotsRef.current.hasAny);
     }
     setStepSignal((prev) => prev + n);
+    fx.play('ui_click');
   }, [rt.mode, validateBeforeRun, sx, showToast]);
 
   const onStepBack = useCallback((n: number) => {
@@ -844,6 +867,7 @@ export function SandboxScreen() {
       setRecordedCount(replayDeploysRef.current.length);
     }
 
+    fx.play('deploy');
     showToast(`Deployed at (${x}, ${y})`, 'info');
   }, [cfg.players, cfg.deployRule, cfg.deployRadius, rt.activePlayerId, recordingEnabled, showToast]);
 
@@ -1143,6 +1167,26 @@ export function SandboxScreen() {
               </Chip>
             );
           })()}
+          {/* Day 22: mute toggle — синхронизирован с MatchScreen через fx state. */}
+          <button
+            type="button"
+            onClick={toggleMute}
+            data-testid="sandbox-mute-toggle"
+            aria-label={muted ? t('audio.unmute', 'Unmute') : t('audio.mute', 'Mute')}
+            title={muted ? t('audio.unmute', 'Unmute') : t('audio.mute', 'Mute')}
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 32, height: 28, padding: 0,
+              background: 'transparent',
+              border: `1px solid ${T.border}`,
+              borderRadius: T.radiusSm,
+              color: muted ? T.textMuted : T.textPrimary,
+              cursor: 'pointer',
+              fontSize: 14, lineHeight: 1,
+            }}
+          >
+            {muted ? '🔇' : '🔊'}
+          </button>
         </div>
       </div>
 

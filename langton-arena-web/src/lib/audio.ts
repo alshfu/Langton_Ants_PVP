@@ -34,7 +34,8 @@ export type SoundId =
   | 'deploy'           // Click satisfying — body + transient + noise burst
   | 'victory'          // 5-note arpeggio C-E-G-C-E, multilayered
   | 'defeat'           // Descending Am chord pad с pitch drift
-  | 'tie';             // FM bell, neutral но богатый обертонами
+  | 'tie'              // FM bell, neutral но богатый обертонами
+  | 'ui_click';        // Day 22: soft tactile click для UI buttons (light deploy)
 
 const MUTE_STORAGE_KEY = 'langton.audio.muted';
 
@@ -341,6 +342,14 @@ function playTie(c: AudioContext, t: number): void {
   osc(c, 'sine', 220, 220, t, 0.02, 0.20, 0.35, 0.15, 1, 0.7);
 }
 
+function playUiClick(c: AudioContext, t: number): void {
+  // Day 22: soft UI tap — лайтер deploy, без noise burst. Sine click +
+  // square transient, обе короткие и тихие. Mid-frequency чтобы не
+  // конкурировать с deploy (1400Hz) и не быть аналогом OS click (3000+Hz).
+  osc(c, 'sine',   1200, 600,  t, 0.001, 0.004, 0.025, 0.12, 1, 0);
+  osc(c, 'square', 1800, 1100, t, 0.001, 0.002, 0.018, 0.06, 1, 0);
+}
+
 // ─── Public play() dispatch ──────────────────────────────────────────────
 
 function playSound(id: SoundId): void {
@@ -358,6 +367,7 @@ function playSound(id: SoundId): void {
     case 'victory':        playVictory(c, now); break;
     case 'defeat':         playDefeat(c, now); break;
     case 'tie':            playTie(c, now); break;
+    case 'ui_click':       playUiClick(c, now); break;
   }
 }
 

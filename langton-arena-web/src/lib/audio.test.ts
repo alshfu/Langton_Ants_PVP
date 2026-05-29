@@ -52,6 +52,7 @@ describe('audio fx — play() SSR / no-audio safety', () => {
     expect(() => fx.play('victory')).not.toThrow();
     expect(() => fx.play('defeat')).not.toThrow();
     expect(() => fx.play('tie')).not.toThrow();
+    expect(() => fx.play('ui_click')).not.toThrow();
   });
 
   it('does not throw when muted', () => {
@@ -227,6 +228,24 @@ describe('audio fx — WebAudio mock smoke (Day 21 layered synthesis)', () => {
       fx.play('countdown_go');
       fx.play('deploy');
       expect(oscStart).not.toHaveBeenCalled();
+      expect(bufferSourceStart).not.toHaveBeenCalled();
+    } finally {
+      if (prevCtx) w.AudioContext = prevCtx;
+      else delete (w as unknown as { AudioContext?: unknown }).AudioContext;
+    }
+  });
+
+  it('ui_click (Day 22) — light tap, 2 osc, no noise burst, dry only', () => {
+    const { ctx, oscStart, bufferSourceStart } = makeMockAudioContext();
+    const MockCtx = vi.fn(() => ctx);
+    const w = window as unknown as { AudioContext: typeof AudioContext };
+    const prevCtx = w.AudioContext;
+    w.AudioContext = MockCtx as unknown as typeof AudioContext;
+
+    try {
+      fx.play('ui_click');
+      // sine click + square transient = 2 osc, без noise
+      expect(oscStart).toHaveBeenCalledTimes(2);
       expect(bufferSourceStart).not.toHaveBeenCalled();
     } finally {
       if (prevCtx) w.AudioContext = prevCtx;
