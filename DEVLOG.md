@@ -3199,11 +3199,111 @@ borrows from marketing/UX disciplines.
 Что осталось из user request (всё в DEVLOG):
 - ✅ Bot opponent с 3 difficulty (Day 31)
 - ✅ PvP режим на главное меню (Day 32)
-- ⏳ Custom win conditions ("first to >50% и продержаться 1000 ticks") — Day 33
+- ⏳ Custom win conditions ("first to >50% и продержаться 1000 ticks") — Day 34+
+
+### День 33 — Smart bot
+
+Day 31 поставил рабочего бота. Но бот был **тупой** — random deploys
+без знания состояния sim. User написал "теперь настроим бота" — это
+opening для intelligence upgrade.
+
+**Problem statement.** Day 31 бот мог:
+- Deploy'ить на чужие cells (waste — server reject)
+- Deploy'ить в пустоту (далеко от any action)
+- Игнорировать что соперник доминирует (no adaptation)
+- Быть predictable по timing (fixed 50/30/15 ticks)
+
+**4 механизма smart'инга:**
+
+**1. Sim state tracking.** Это foundational change. Бот теперь
+maintain'ит **own engine instance** через `makeLangtonState` + step +
+applyDeployAction в каждом match_tick. Этот же engine который player's
+client использует — никаких новых API. Просто **another consumer**
+shared engine.
+
+```ts
+case 'match_tick':
+  while (this.sim.tick < msg.tick) stepLangton(this.sim);
+  for (d of msg.deploys) applyDeployAction(this.sim, d, this.config);
+```
+
+После этого `sim.owner` — точная картина территории realtime.
+
+**2. Frontier targeting.** `findFrontierCells` — pure function,
+ищет мои клетки adjacent к non-my (или strictly enemy для Hard).
+O(W×H) single pass через `sim.owner` — microseconds на 60×60.
+
+Smart vs random ratio per difficulty:
+- Easy: 0% smart (preserves "fun unpredictable" feel — Easy not
+  для serious play, для **introduction** к game)
+- Normal: 40% smart (mostly random, occasional strategic deploys)
+- Hard: 70% smart **с strictEnemy=true** (только frontier к enemy
+  cells — aggressive expansion)
+
+**3. Jittered intervals.** Day 31 interval был **rigid**: Hard
+deploys every exactly 15 ticks. Human player learned pattern in 10
+seconds и timed свои deploys around bot's gaps.
+
+Day 33 ±20% jitter:
+```ts
+const jitter = (random() - 0.5) * 2 * 0.2; // -0.2..+0.2
+const adjustedInterval = round(baseInterval * (1 + jitter));
+```
+
+Hard 15 → diapason [12, 18]. Player не может predict.
+
+**Initial burst** — первые 3 deploys на interval=8 (~0.8s). Это
+opening pattern из real RTS — establish forward position quickly.
+Bot теперь чувствуется как живой opponent с самого начала, не как
+robot который waits 5 seconds перед первым move.
+
+**4. Adaptive Hard panic mode.** `isPanicMode` checks территорию
+delta. Если opp leads on >5% → panic=true → interval halved.
+
+```ts
+if (panic) interval = max(5, floor(baseInterval * 0.5));
+```
+
+Это **dynamic difficulty**. Когда Hard winning — comfortable timing,
+никаких rush'ей. Когда losing — frantic. Гораздо more "human" чем
+constant relentless aggression.
+
+**Testing methodology**. Pure helpers все unit-tested без real WS:
+
+```ts
+expect(findFrontierCells(sim, 3, 3, 0, true)).toEqual([{x: 1, y: 1}]);
+expect(isPanicMode(sim, 0, 2, 2, 'hard')).toBe(true);
+expect(shouldDeployJittered(8, 0, 'hard', 5, /*panic*/ true)).toBe(true);
+```
+
+26 новых tests. Edge cases:
+- null sim → fallback на legacy random (not crash)
+- frontiers empty → fallback
+- wild cells (owner=255) не считаются enemy для panic detection
+- strictEnemy=false vs true different behavior
+
+**Bundle +2.4 KB / +0.8 gzip**. Cheap для это intelligence increase.
+~250 строк new code + 200 строк tests.
+
+**Урок дня.** Smart enemies = better UX. Random bots feel **dishonest**
+(player чувствует что играет против slot machine). Sim-aware bots
+feel **honest** — they react to game state, they can be outplayed
+через strategy, victories feel earned.
+
+Lesson for next project: **bot intelligence scales with shared
+engine availability**. Если ваша game logic в shared library (как
+наш `@langton/core`) — bot гораздо easier сделать smart. Если bot
+живёт в isolated context (другой language, другой service) — он
+forever на random heuristic level.
+
+Это **DRY engine principle** окупается каждый раз когда ты пишешь
+смежный feature: replay (Day 58 в core), bot (Day 33), spectator
+mode (Stage 9 будет), все используют **тот же** engine. Один codepath,
+n consumers, n divergence points.
 
 ---
 
-### Этап 8 закрыт. Что построили за 32 дня
+### Этап 8 закрыт. Что построили за 33 дня
 
 - 5 микросервисов в `langton-arena-backend/` (только mvp-server
   реально работает; остальные — заготовки для Этапа 9)
@@ -3238,18 +3338,20 @@ borrows from marketing/UX disciplines.
   fallback для PvP, client-side через secondary WS
 - Menu redesign — Play vs Bot + Play vs Friend как primary entry,
   auto-spawn bot через ?bot= URL param + room code generator
-- 503/503 тестов: 266 web + 131 core + 106 mvp-server
+- Smart bot v2 — sim state tracking, frontier targeting,
+  jittered intervals, initial burst, adaptive Hard panic mode
+- 529/529 тестов: 292 web + 131 core + 106 mvp-server
 - 0 TypeScript ошибок strict mode
 
 **По числам Этапа 8:**
-- 32 дня (из них 2 — побочные квесты Render→VPS и Reddit)
+- 33 дня (из них 2 — побочные квесты Render→VPS и Reddit)
 - ~40 новых файлов в backend, ~34 новых в web
-- Bundle web вырос 132 → 227 КБ (за счёт MatchScreen + WSClient +
+- Bundle web вырос 132 → 230 КБ (за счёт MatchScreen + WSClient +
   clientPrediction + protocol типов + layered WebAudio FX + QR
   encoder + scoreboard + sandbox audio wire + rematch UI +
   onboarding hints + music sequencer + volume panel + milestones +
   sandbox music wire + HUD enhancements + match preview + bot opponent +
-  menu redesign)
+  menu redesign + smart bot intelligence)
 - Server image 192 МБ Docker, RAM ~50 МБ idle, ~80 МБ под матчем
 - 0 production incidents за 5 дней live (но 0 пользователей пока)
 
