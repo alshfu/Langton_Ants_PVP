@@ -2792,9 +2792,81 @@ Lesson for next project: если нужен audio design — **plan all 3 layer
 + key SFX + 2-3 milestone stingers. Это **complete** emotional toolkit
 для большинства casual games.
 
+### День 28 — Music + milestones в Sandbox
+
+Пользователь написал "звука нет в нашей песочнице" (см. Day 22).
+Я добавил SFX wire (deploy click, ui_click, victory/tie). После
+Days 25/27 я добавил dynamic music и milestone stingers — но **только
+в PvP MatchScreen**. Sandbox в run mode шёл в тишине (кроме изолированных
+SFX events).
+
+Это типичный pattern: добавляешь feature в один screen, забываешь
+расширить на другой. Sandbox и MatchScreen используют похожую state
+shape (sim, scoreboard, players), но living в отдельных React
+component деревьях. Cross-screen audio consistency не получается
+бесплатно — нужно явно wire каждый.
+
+Реализация заняла меньше часа. Все helpers (computeScoreboard, music,
+moodFromDelta, detectMilestones, MilestoneBanner) уже существуют. Я
+просто подключил их к sandbox state machine.
+
+**Sandbox-specific decisions:**
+
+1. **Music only в run + !paused**. Edit mode — пользователь конфигурирует,
+   playback — recorded session должен play silently. Paused — implicit
+   "хочу тишины". Это unique для sandbox, в PvP music играл во всех
+   phase'ах (lobby/countdown/playing).
+
+2. **Multi-player perspective**. PvP всегда 2 игрока, так что
+   "opponent" = players[!me]. В Sandbox 2-10. Решил так:
+
+   ```ts
+   const oppEntry = scoreboard.entries
+     .filter((e) => e.playerIdx !== activeIdx)
+     .sort((a, b) => b.cells - a.cells)[0]; // best non-me
+   ```
+
+   "Opponent" для milestone detection = лидер среди не-меня. Если
+   доминирую — comeback не trigger'нет потому что я уже впереди всех.
+   Если behind two players, обгоняю одного — это lead change.
+
+3. **Active player as perspective**. В PvP perspective = me (clientId).
+   В Sandbox perspective = `rt.activePlayerId` (тот кого user выбрал
+   контролировать через UI). Если null — neutral mood, no milestones.
+
+4. **Reset на mode change**. Когда пользователь делает switchToEdit
+   или playback — milestone state cleared (firedMilestonesRef +
+   prevScoreboardRef). Fresh start для следующего experiment'а.
+
+**Cross-screen consistency** — это где architectural Day 26 (subscriber
+pattern в audio.ts) окупается. Music engine — singleton. Когда
+MatchScreen stops его, и потом Sandbox starts — engine знает что он
+готов к новой phase. State не leak'ает между screens. Volume settings
+переживают cross-screen navigation.
+
+Bundle +1.5 KB raw / +0.6 gzip. Это essentially **0 cost** — весь
+growth это extra useEffect logic, ноль новых helpers. Day 28 это
+**reuse work**, не creation work.
+
+**Урок дня.** Когда добавляешь feature которая трогает global app
+state (audio, music, etc) — **wire её во все relevant screens сразу**,
+не postpone. Иначе создаёшь **silent regressions** — feature работает
+в одном месте, но не в другом, и пользователь думает "хм странно,
+почему здесь молчит?"
+
+Lesson for next project: при добавлении global feature — checklist
+"в каких screens должна работать?", и pass через все. Не "MatchScreen
+done, остальные потом". Это **анти-pattern** одного из моих Day 22
+errors который я повторял до сегодня.
+
+В целом аудиосистема Sandbox = PvP MatchScreen (по functionality):
+music, SFX, stingers, banners, volume controls. Единственная
+difference — sandbox-specific phase mapping (run+!paused = playing).
+Это правильно — sandbox и match имеют разные state machines.
+
 ---
 
-### Этап 8 закрыт. Что построили за 27 дней
+### Этап 8 закрыт. Что построили за 28 дней
 
 - 5 микросервисов в `langton-arena-backend/` (только mvp-server
   реально работает; остальные — заготовки для Этапа 9)
@@ -2820,16 +2892,19 @@ Lesson for next project: если нужен audio design — **plan all 3 layer
 - Per-channel volume controls (master/music/sfx) + VolumePanel UI
 - Match milestone stingers (50/75/25 thresholds + lead change) +
   visual banners с overshoot animation
+- Day 28 wire music + stingers в Sandbox (cross-screen audio
+  consistency — sandbox теперь functionally equivalent PvP audio-wise)
 - 463/463 тестов: 226 web + 131 core + 106 mvp-server
 - 0 TypeScript ошибок strict mode
 
 **По числам Этапа 8:**
-- 27 дней (из них 2 — побочные квесты Render→VPS и Reddit)
+- 28 дней (из них 2 — побочные квесты Render→VPS и Reddit)
 - ~40 новых файлов в backend, ~27 новых в web
-- Bundle web вырос 132 → 214 КБ (за счёт MatchScreen + WSClient +
+- Bundle web вырос 132 → 216 КБ (за счёт MatchScreen + WSClient +
   clientPrediction + protocol типов + layered WebAudio FX + QR
   encoder + scoreboard + sandbox audio wire + rematch UI +
-  onboarding hints + music sequencer + volume panel + milestones)
+  onboarding hints + music sequencer + volume panel + milestones +
+  sandbox music wire)
 - Server image 192 МБ Docker, RAM ~50 МБ idle, ~80 МБ под матчем
 - 0 production incidents за 5 дней live (но 0 пользователей пока)
 
