@@ -60,6 +60,16 @@ function readRoomCode(): string | null {
   } catch { return null; }
 }
 
+/** Day 32: ?bot=easy|normal|hard → auto-spawn bot после join lobby. */
+function readBotParam(): BotDifficulty | null {
+  try {
+    const p = new URLSearchParams(window.location.search);
+    const v = p.get('bot');
+    if (v === 'easy' || v === 'normal' || v === 'hard') return v;
+    return null;
+  } catch { return null; }
+}
+
 function getBrowserLocale(): string {
   try {
     const loc = (navigator.language || 'en').toLowerCase().split('-')[0]!;
@@ -251,6 +261,17 @@ export function MatchScreen() {
       botRef.current = null;
     };
   }, []);
+  // Day 32: auto-spawn bot если ?bot= URL param передан и мы только что
+  // вошли в lobby. Только однажды — refs ensure no double-spawn.
+  const autoBotTriggeredRef = useRef(false);
+  useEffect(() => {
+    if (phase !== 'lobby') return;
+    if (autoBotTriggeredRef.current) return;
+    const botDiff = readBotParam();
+    if (!botDiff) return;
+    autoBotTriggeredRef.current = true;
+    void spawnBot(botDiff);
+  }, [phase, spawnBot]);
 
   // Day 25/26: dynamic music через все игровые phase'ы.
   // - lobby: pad-only ambient (intensity 0.1)

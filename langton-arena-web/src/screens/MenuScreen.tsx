@@ -2,7 +2,7 @@
 //
 // Главное меню с фоновой симуляцией Лэнгтона + кнопками навигации.
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useTheme } from '@theme/ThemeProvider';
 import { useT } from '@i18n/I18nProvider';
 import { useAppState } from '@state/AppStateProvider';
@@ -12,11 +12,16 @@ import { PLAYER_PALETTE } from '@core/shared/constants';
 import { Button } from '@ui/Button';
 import { Eyebrow } from '@ui/Eyebrow';
 import { Logo } from '@ui/Logo';
+import { BotInviteDialog } from '@components/BotInviteDialog';
+import type { BotDifficulty } from '@lib/botPlayer';
+import { generateRoomCode, buildMatchUrl } from '@lib/roomCodes';
 
 export function MenuScreen() {
   const { tokens: T } = useTheme();
   const t = useT();
   const { setScreen } = useAppState();
+  // Day 32: bot difficulty picker state
+  const [botDialogOpen, setBotDialogOpen] = useState(false);
 
   const ants = useMemo(() => {
     const list = [];
@@ -81,28 +86,91 @@ export function MenuScreen() {
         position: 'absolute', inset: 0,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         zIndex: 1,
+        padding: 24,
       }}>
-        <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24 }}>
+        <div style={{
+          textAlign: 'center',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20,
+          maxWidth: 720, width: '100%',
+        }}>
           <h1 style={{
-            margin: 0, fontSize: 72, fontWeight: 900, letterSpacing: -3,
+            margin: 0, fontSize: 'clamp(40px, 8vw, 72px)', fontWeight: 900, letterSpacing: -3,
             lineHeight: 1, color: T.textPrimary,
           }}>{t('menu.title', 'Langton Arena')}</h1>
-          <div style={{ color: T.textMuted, fontSize: 14, marginTop: -16 }}>
+          <div style={{ color: T.textMuted, fontSize: 14, marginTop: -12 }}>
             {t('menu.subtitle', 'PvP cellular automata')}
           </div>
-          <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
-            <Button size="lg" onClick={() => setScreen('matchmaking')}>
-              ▶ {t('menu.button.play', 'Play')}
+
+          {/* Day 32: tagline объясняет game для first-time visitors */}
+          <div style={{
+            color: T.textPrimary, fontSize: 'clamp(14px, 2.5vw, 16px)',
+            maxWidth: 540, lineHeight: 1.5, opacity: 0.9,
+            fontFamily: 'Inter, system-ui, sans-serif',
+          }}>
+            {t('menu.tagline',
+              'Real-time PvP based on Langton\'s Ant cellular automaton. ' +
+              'Deploy ants, capture territory, outmaneuver your opponent in 30 seconds.')}
+          </div>
+
+          {/* Day 32: primary PvP actions — Play vs Bot + Play vs Friend */}
+          <div style={{
+            display: 'flex', gap: 12, marginTop: 20, flexWrap: 'wrap',
+            justifyContent: 'center',
+          }}>
+            <Button
+              size="lg"
+              onClick={() => setBotDialogOpen(true)}
+              data-testid="menu-play-vs-bot"
+            >
+              🤖 {t('menu.button.playVsBot', 'Play vs Bot')}
             </Button>
-            <Button size="lg" variant="ghost" onClick={() => setScreen('sandbox')}>
+            <Button
+              size="lg"
+              variant="ghost"
+              onClick={handlePlayVsFriend}
+              data-testid="menu-play-vs-friend"
+            >
+              👥 {t('menu.button.playVsFriend', 'Play vs Friend')}
+            </Button>
+          </div>
+
+          {/* Day 32: secondary actions — Sandbox / Profile */}
+          <div style={{
+            display: 'flex', gap: 12, marginTop: 4, flexWrap: 'wrap',
+            justifyContent: 'center',
+          }}>
+            <Button size="md" variant="ghost" onClick={() => setScreen('sandbox')}>
               ★ {t('menu.button.sandbox', 'Sandbox')}
             </Button>
-            <Button size="lg" variant="ghost" onClick={() => setScreen('profile')}>
-              {t('menu.button.profile', 'Profile')}
+            <Button size="md" variant="ghost" onClick={() => setScreen('profile')}>
+              👤 {t('menu.button.profile', 'Profile')}
             </Button>
           </div>
         </div>
       </div>
+
+      {/* Day 32: bot difficulty dialog (открывается с menu Play vs Bot) */}
+      {botDialogOpen && (
+        <BotInviteDialog
+          onSelect={(difficulty) => {
+            setBotDialogOpen(false);
+            startBotMatch(difficulty);
+          }}
+          onCancel={() => setBotDialogOpen(false)}
+        />
+      )}
     </div>
   );
+
+  function startBotMatch(difficulty: BotDifficulty): void {
+    const code = generateRoomCode();
+    const url = buildMatchUrl(code, difficulty);
+    window.location.href = url;
+  }
+
+  function handlePlayVsFriend(): void {
+    const code = generateRoomCode();
+    const url = buildMatchUrl(code);
+    window.location.href = url;
+  }
 }
