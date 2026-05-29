@@ -131,4 +131,54 @@ describe('computeScoreboard', () => {
     expect(sb.entries.map(e => e.cells)).toEqual([1, 1, 1]);
     expect(sb.entries.map(e => e.percent)).toEqual([33.3, 33.3, 33.3]);
   });
+
+  // ─── Day 29: antsAlive field ────────────────────────────────────────────
+  it('antsAlive по умолчанию 0 если sim.ants пустой', () => {
+    const sim = makeSim(2, 1, [1, 2]);
+    const sb = computeScoreboard(sim, players, palette);
+    expect(sb.entries.find(e => e.name === 'Alice')!.antsAlive).toBe(0);
+    expect(sb.entries.find(e => e.name === 'Bob')!.antsAlive).toBe(0);
+  });
+
+  it('antsAlive считает живых муравьёв по owner', () => {
+    const sim = makeSim(2, 1, [1, 2]);
+    // 3 alive p0, 2 alive p1, 1 dead p0
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (sim.ants as any).push(
+      { owner: 0, dead: false, x: 0, y: 0 },
+      { owner: 0, dead: false, x: 1, y: 0 },
+      { owner: 0, dead: false, x: 2, y: 0 },
+      { owner: 1, dead: false, x: 3, y: 0 },
+      { owner: 1, dead: false, x: 4, y: 0 },
+      { owner: 0, dead: true,  x: 5, y: 0 },
+    );
+    const sb = computeScoreboard(sim, players, palette);
+    expect(sb.entries.find(e => e.name === 'Alice')!.antsAlive).toBe(3);
+    expect(sb.entries.find(e => e.name === 'Bob')!.antsAlive).toBe(2);
+  });
+
+  it('antsAlive игнорирует wild (owner=255)', () => {
+    const sim = makeSim(2, 1, [1, 2]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (sim.ants as any).push(
+      { owner: 0,   dead: false, x: 0, y: 0 },
+      { owner: 255, dead: false, x: 1, y: 0 },
+      { owner: 255, dead: false, x: 2, y: 0 },
+    );
+    const sb = computeScoreboard(sim, players, palette);
+    expect(sb.entries.find(e => e.name === 'Alice')!.antsAlive).toBe(1);
+    expect(sb.entries.find(e => e.name === 'Bob')!.antsAlive).toBe(0);
+  });
+
+  it('player с 0 alive ants (eliminated) → antsAlive=0', () => {
+    const sim = makeSim(2, 1, [1, 2]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (sim.ants as any).push(
+      { owner: 0, dead: true, x: 0, y: 0 }, // p0 eliminated
+      { owner: 1, dead: false, x: 1, y: 0 },
+    );
+    const sb = computeScoreboard(sim, players, palette);
+    expect(sb.entries.find(e => e.name === 'Alice')!.antsAlive).toBe(0);
+    expect(sb.entries.find(e => e.name === 'Bob')!.antsAlive).toBe(1);
+  });
 });

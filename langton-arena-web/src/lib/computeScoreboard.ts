@@ -24,6 +24,8 @@ export interface ScoreboardEntry {
   cells: number;
   /** Процент от total field (0..100, с 1 десятичной). */
   percent: number;
+  /** Day 29: количество живых муравьёв у этого игрока. */
+  antsAlive: number;
 }
 
 export interface ScoreboardSummary {
@@ -52,6 +54,13 @@ export function computeScoreboard(
   const counts = computeCellCountsByOwner(sim);
   const totalCells = sim.owner.length;
 
+  // Day 29: pre-compute ants alive per playerIdx (single-pass через sim.ants)
+  const antsAliveByPlayer = new Map<number, number>();
+  for (const ant of sim.ants) {
+    if (ant.dead || ant.owner === 255) continue; // skip dead + wild
+    antsAliveByPlayer.set(ant.owner, (antsAliveByPlayer.get(ant.owner) ?? 0) + 1);
+  }
+
   const entries: ScoreboardEntry[] = players.map((p, idx) => {
     const cells = counts[idx + 1] ?? 0;
     const percent = totalCells > 0 ? (cells / totalCells) * 100 : 0;
@@ -61,6 +70,7 @@ export function computeScoreboard(
       color: palette[idx] ?? '#888888',
       cells,
       percent: Math.round(percent * 10) / 10,
+      antsAlive: antsAliveByPlayer.get(idx) ?? 0,
     };
   });
 

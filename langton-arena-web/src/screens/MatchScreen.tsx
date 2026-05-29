@@ -1156,7 +1156,17 @@ function PlayingView({
       <div style={{
         display: 'flex', gap: 8, fontSize: 10,
         color: T.textMuted, fontFamily: 'JetBrains Mono, monospace',
+        alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center',
       }}>
+        {/* Day 29: time remaining — visible countdown с pulse в last 10s */}
+        {config.winCondition.kind === 'time' && (
+          <MatchTimer
+            T={T}
+            ticksElapsed={stepSignal}
+            threshold={config.winCondition.threshold}
+            tps={config.baseTps * config.speedMultiplier}
+          />
+        )}
         <Chip color={T.info} size="sm">
           {config.width}×{config.height} {config.gridType ?? 'square'}
         </Chip>
@@ -1256,6 +1266,9 @@ function LiveScoreboard({
       {summary.entries.map((e) => {
         const isLeader = e.playerIdx === leaderIdx && summary.totalOwned > 0;
         const isMe = e.playerIdx === myPlayerIdx;
+        // Day 29: critical state — игрок в опасности (<25%). Pulse animation.
+        const isCritical = e.percent > 0 && e.percent < 25 && summary.totalOwned > 0;
+        const isEliminated = e.antsAlive === 0 && summary.totalOwned > 0;
         return (
           <div
             key={e.playerIdx}
@@ -1263,11 +1276,21 @@ function LiveScoreboard({
             style={{
               display: 'flex', alignItems: 'center', gap: 8,
               padding: '6px 10px',
-              background: isLeader ? `${e.color}1A` : T.bgOverlay,
-              border: `1px solid ${isLeader ? e.color : T.border}`,
+              background: isLeader ? `${e.color}1A`
+                       : isCritical ? `${T.danger}12`
+                       : T.bgOverlay,
+              border: `1px solid ${
+                isLeader ? e.color
+                : isCritical ? `${T.danger}88`
+                : T.border
+              }`,
               borderRadius: T.radiusSm,
               boxShadow: isMe ? `0 0 0 1.5px ${e.color}66 inset` : 'none',
               transition: 'background 0.2s, border-color 0.2s',
+              opacity: isEliminated ? 0.45 : 1,
+              animation: isCritical
+                ? 'scoreboard-critical-pulse 1.4s ease-in-out infinite'
+                : undefined,
             }}
           >
             <span style={{
@@ -1286,11 +1309,25 @@ function LiveScoreboard({
             </span>
             <span style={{
               fontSize: 12, fontWeight: 700,
-              color: e.color,
+              color: isEliminated ? T.textMuted : e.color,
               minWidth: 32, textAlign: 'right',
               fontVariantNumeric: 'tabular-nums',
             }}>
               {e.percent.toFixed(1)}%
+            </span>
+            {/* Day 29: ants alive — рядом с percent */}
+            <span
+              data-testid={`scoreboard-p${e.playerIdx}-ants`}
+              style={{
+                fontSize: 11, fontWeight: 600,
+                color: e.antsAlive === 0 ? T.danger : T.textMuted,
+                letterSpacing: 0.3,
+                fontVariantNumeric: 'tabular-nums',
+                display: 'inline-flex', alignItems: 'center', gap: 2,
+              }}
+            >
+              <span aria-hidden="true" style={{ opacity: 0.7 }}>🐜</span>
+              {e.antsAlive}
             </span>
             <span style={{
               fontSize: 10, color: T.textMuted,
@@ -1301,6 +1338,58 @@ function LiveScoreboard({
           </div>
         );
       })}
+      <style>{`@keyframes scoreboard-critical-pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(255,69,58,0); }
+        50%      { box-shadow: 0 0 0 4px rgba(255,69,58,0.45); }
+      }`}</style>
+    </div>
+  );
+}
+
+/**
+ * Day 29: MatchTimer — обратный отсчёт времени до конца матча.
+ * baseTps * speedMultiplier даёт ticks/sec → seconds = ticksLeft / tps.
+ * Pulse animation в последние 10 секунд (urgency).
+ */
+function MatchTimer({
+  T, ticksElapsed, threshold, tps,
+}: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  T: any;
+  ticksElapsed: number;
+  threshold: number;
+  tps: number;
+}) {
+  const ticksLeft = Math.max(0, threshold - ticksElapsed);
+  const secondsLeft = Math.ceil(ticksLeft / tps);
+  const total = Math.round(threshold / tps);
+  const urgent = secondsLeft <= 10 && secondsLeft > 0;
+  const color = urgent ? T.warning : T.textPrimary;
+  return (
+    <div
+      data-testid="match-timer"
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        padding: '4px 10px',
+        background: T.bgOverlay,
+        border: `1px solid ${urgent ? T.warning : T.border}`,
+        borderRadius: T.radiusSm,
+        fontFamily: 'JetBrains Mono, monospace',
+        fontSize: 12,
+        color,
+        fontVariantNumeric: 'tabular-nums',
+        animation: urgent
+          ? 'timer-urgent-pulse 0.6s ease-in-out infinite'
+          : undefined,
+      }}
+    >
+      <span aria-hidden="true" style={{ opacity: 0.7 }}>⏱</span>
+      <span style={{ fontWeight: 700 }}>{secondsLeft}s</span>
+      <span style={{ color: T.textMuted, fontSize: 10 }}>/ {total}s</span>
+      <style>{`@keyframes timer-urgent-pulse {
+        0%, 100% { transform: scale(1); }
+        50%      { transform: scale(1.06); }
+      }`}</style>
     </div>
   );
 }

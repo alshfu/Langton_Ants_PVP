@@ -8,8 +8,8 @@ import type { ScoreboardSummary } from './computeScoreboard';
 function sb(myPercent: number, oppPercent: number): ScoreboardSummary {
   return {
     entries: [
-      { playerIdx: 0, name: 'Me',  color: '#F00', cells: myPercent * 36, percent: myPercent },
-      { playerIdx: 1, name: 'Opp', color: '#0F0', cells: oppPercent * 36, percent: oppPercent },
+      { playerIdx: 0, name: 'Me',  color: '#F00', cells: myPercent * 36, percent: myPercent, antsAlive: 5 },
+      { playerIdx: 1, name: 'Opp', color: '#0F0', cells: oppPercent * 36, percent: oppPercent, antsAlive: 5 },
     ],
     totalOwned: (myPercent + oppPercent) * 36,
     totalCells: 3600,
@@ -90,7 +90,7 @@ describe('detectMilestones', () => {
 
   it('один-player scoreboard (no opponent) — нет lead_change', () => {
     const single: ScoreboardSummary = {
-      entries: [{ playerIdx: 0, name: 'Me', color: '#F00', cells: 1800, percent: 50 }],
+      entries: [{ playerIdx: 0, name: 'Me', color: '#F00', cells: 1800, percent: 50, antsAlive: 5 }],
       totalOwned: 1800, totalCells: 3600, neutralCells: 1800,
     };
     const ms = detectMilestones(single, single, 0);
