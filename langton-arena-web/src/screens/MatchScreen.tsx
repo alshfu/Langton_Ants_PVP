@@ -27,6 +27,8 @@ import { PLAYER_PALETTE } from '@core/shared/constants';
 import { fx } from '@lib/audio';
 import { renderQrSvg, tryWebShare, isWebShareAvailable } from '@lib/qrCode';
 import { computeScoreboard, type ScoreboardSummary } from '@lib/computeScoreboard';
+import { hasSeenHint, markHintSeen, type HintId } from '@lib/onboarding';
+import { OnboardingHint } from '@components/OnboardingHint';
 
 type MatchPhase = 'connecting' | 'lobby' | 'countdown' | 'playing' | 'finished' | 'error';
 
@@ -133,6 +135,9 @@ export function MatchScreen() {
   // Day 23: rematch state. iRequestedRematch = клик "Play Again"; opp = тоже.
   const [iRequestedRematch, setIRequestedRematch] = useState(false);
   const [opponentRequestedRematch, setOpponentRequestedRematch] = useState(false);
+  // Day 24: onboarding hint state. null означает либо все hints уже показаны,
+  // либо текущая phase без hint. Reset на каждый phase change.
+  const [activeHint, setActiveHint] = useState<HintId | null>(null);
 
   const me = players.find((p) => p.clientId === clientId);
   const opponent = players.find((p) => p.clientId !== clientId);
@@ -187,6 +192,24 @@ export function MatchScreen() {
     fx.setMuted(next);
     setMuted(next);
   }, []);
+
+  // Day 24: показываем contextual hint на phase entry если ещё не видели.
+  // Reactив на phase. markHintSeen вызывается в dismissActiveHint.
+  useEffect(() => {
+    let hintId: HintId | null = null;
+    if (phase === 'lobby' && !hasSeenHint('match_lobby')) {
+      hintId = 'match_lobby';
+    } else if (phase === 'playing' && !hasSeenHint('match_playing')) {
+      hintId = 'match_playing';
+    } else if (phase === 'finished' && !hasSeenHint('match_finished')) {
+      hintId = 'match_finished';
+    }
+    setActiveHint(hintId);
+  }, [phase]);
+  const dismissActiveHint = useCallback(() => {
+    if (activeHint) markHintSeen(activeHint);
+    setActiveHint(null);
+  }, [activeHint]);
 
   // Stage 8 Day 8: engineAnts + palette + shapes для LangtonField в playing phase
   const engineAnts: Ant[] = useMemo(
@@ -668,6 +691,32 @@ export function MatchScreen() {
           <ErrorView t={t} T={T} text={errorText} onBack={goBack} />
         )}
       </div>
+
+      {/* Day 24: contextual onboarding hint — показывается один раз ever per
+          hint id. activeHint computed в useEffect от phase. */}
+      {activeHint && (
+        <OnboardingHint
+          icon={
+            activeHint === 'match_lobby'    ? '👋'
+            : activeHint === 'match_playing' ? '👆'
+            : activeHint === 'match_finished' ? '🔁'
+            : '💡'
+          }
+          text={
+            activeHint === 'match_lobby'
+              ? t('hint.lobby',
+                  "Welcome! Click Ready when you're set. Need a friend? Share the QR code or URL above — they'll join your room.")
+            : activeHint === 'match_playing'
+              ? t('hint.playing',
+                  'Click any cell on the field to deploy your ant. The match runs 30 seconds — whoever captures more territory wins.')
+            : activeHint === 'match_finished'
+              ? t('hint.finished',
+                  'Match over! Click Play again — your opponent has to click too. Both agree → instant new match in the same room.')
+            : ''
+          }
+          onDismiss={dismissActiveHint}
+        />
+      )}
 
       {/* Day 13: reconnect overlay (на всех phase кроме error/finished) */}
       {reconnectStatus !== 'idle' && phase !== 'error' && phase !== 'finished' && (
