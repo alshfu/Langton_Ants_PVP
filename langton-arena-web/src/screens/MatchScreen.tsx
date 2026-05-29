@@ -24,6 +24,7 @@ import {
   getResumeToken, setResumeToken, clearResumeToken,
 } from '@lib/resumeToken';
 import { PLAYER_PALETTE } from '@core/shared/constants';
+import { fx } from '@lib/audio';
 
 type MatchPhase = 'connecting' | 'lobby' | 'countdown' | 'playing' | 'finished' | 'error';
 
@@ -122,6 +123,9 @@ export function MatchScreen() {
   const [pvpReplay, setPvpReplay] = useState<Replay | null>(null);
   // Day 13: reconnect state — true когда показываем "Reconnecting…" overlay.
   const [reconnectStatus, setReconnectStatus] = useState<'idle' | 'reconnecting' | 'opponent_away'>('idle');
+  // Day 18: mute toggle for in-match audio. Persists в localStorage через fx.
+  const [muted, setMuted] = useState<boolean>(fx.isMuted());
+  const lastBeepSecRef = useRef<number>(-1);
 
   const me = players.find((p) => p.clientId === clientId);
   const opponent = players.find((p) => p.clientId !== clientId);
@@ -135,6 +139,47 @@ export function MatchScreen() {
     }, 100);
     return () => clearInterval(id);
   }, [phase, countdownEndAt]);
+
+  // Day 18: countdown sound effects — beep на 3/2/1, GO! на 0.
+  // Триггеримся когда `ceil(remaining/1000)` пересекает следующий integer.
+  useEffect(() => {
+    if (phase !== 'countdown') {
+      lastBeepSecRef.current = -1;
+      return;
+    }
+    const sec = Math.ceil(countdownRemaining / 1000);
+    if (sec !== lastBeepSecRef.current && sec >= 0 && sec <= 3) {
+      lastBeepSecRef.current = sec;
+      if (sec === 0) fx.play('countdown_go');
+      else fx.play('countdown_beep');
+    }
+  }, [phase, countdownRemaining]);
+
+  // Day 18: match end sound (победа/поражение/ничья). Триггеримся в phase
+  // transition в 'finished' с уже set matchResult.
+  // matchResult.winnerId это server playerId 'p0'/'p1' — конвертируем в idx
+  // тем же способом что FinishedView (см. line ~985).
+  useEffect(() => {
+    if (phase !== 'finished' || !matchResult) return;
+    const myIdx = myPlayerIdxRef.current;
+    const winnerIdx = matchResult.winnerId
+      ? Number(matchResult.winnerId.replace(/\D/g, ''))
+      : null;
+    if (winnerIdx == null) {
+      fx.play('tie');
+    } else if (myIdx != null && winnerIdx === myIdx) {
+      fx.play('victory');
+    } else {
+      fx.play('defeat');
+    }
+  }, [phase, matchResult]);
+
+  // Day 18: mute toggle helper — синхронизирует state + fx.
+  const toggleMute = useCallback(() => {
+    const next = !fx.isMuted();
+    fx.setMuted(next);
+    setMuted(next);
+  }, []);
 
   // Stage 8 Day 8: engineAnts + palette + shapes для LangtonField в playing phase
   const engineAnts: Ant[] = useMemo(
@@ -414,6 +459,7 @@ export function MatchScreen() {
 
   // Stage 8 Day 9: click на канвас → send deploy сообщение.
   // Stage 8 Day 10: + optimistic ghost для instant визуальной обратной связи.
+  // Stage 8 Day 18: + 'deploy' sound для tactile feedback.
   // Reconciliation: ghost удаляется когда server echo'ит deploy в match_tick
   // (см. case 'match_tick') или присылает error('INVALID_DEPLOY').
   const handleDeployClick = useCallback((x: number, y: number) => {
@@ -423,6 +469,7 @@ export function MatchScreen() {
     wsRef.current.send({ type: 'deploy', tick, x, y });
     // Optimistic ghost (instant visual feedback ~RTT/2 раньше реального ant).
     setPendingGhosts((prev) => addGhost(prev, makeGhost(x, y, idx, tick)));
+    fx.play('deploy');
   }, []);
 
   // Stage 8 Day 9: server-driven onTick callback.
@@ -485,6 +532,26 @@ export function MatchScreen() {
               👤 {nicknameRef.current}
             </Chip>
           )}
+          {/* Day 18: speaker icon toggle. Click → fx.setMuted. */}
+          <button
+            type="button"
+            onClick={toggleMute}
+            data-testid="mute-toggle"
+            aria-label={muted ? t('match.unmute', 'Unmute') : t('match.mute', 'Mute')}
+            title={muted ? t('match.unmute', 'Unmute') : t('match.mute', 'Mute')}
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 32, height: 28, padding: 0,
+              background: 'transparent',
+              border: `1px solid ${T.border}`,
+              borderRadius: T.radiusSm,
+              color: muted ? T.textMuted : T.textPrimary,
+              cursor: 'pointer',
+              fontSize: 14, lineHeight: 1,
+            }}
+          >
+            {muted ? '🔇' : '🔊'}
+          </button>
         </span>
       </div>
 
