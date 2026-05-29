@@ -2952,9 +2952,83 @@ Lesson for next game project: budget **2-3 дня для HUD/info UX**
 это **playability**. Без timer + alive count игрок принимает
 решения на 50% slower, и часто wrong.
 
+### День 30 — Match preview card в Lobby
+
+Открыл в режиме инкогнито и сделал mental walkthrough first-time
+user'а: opening URL → menu → click "Play" → enter nickname → join
+room → **lobby**.
+
+В lobby я вижу свой ник, opponent placeholder, QR code, Ready
+button. И **не понимаю что играть**. Это казалось бы тривиально
+("Langton's Ant PvP", chill") но я как игрок хочу знать:
+- Как долго матч? 1 минута? 5 минут? 30 секунд?
+- Какой grid? 60×60 или 1000×1000?
+- 2-player или 10-player?
+- Какие мутации? Какое правило?
+
+Это как **присоединиться к Counter-Strike матчу не зная карты**.
+Не нравится — пойду в другой room.
+
+Решение: `MatchPreviewCard` — compact 2-column grid, 8 rows,
+icon + label + value. Показывает всё что нужно знать **до клика
+Ready**. Игрок может informed решение принять.
+
+```
+🗺 Field          🐜 Ants
+  60×60 square      3 per player
+⏱ Duration        👥 Players
+  30s               up to 2
+🔁 Topology       ⚙ Rule
+  torus             Classic (RL)
+🧬 Mutations      🏆 Win
+  On (Halo)         Most territory
+```
+
+**Хардкод vs server-pushed.** Для Stage 8 PvP MVP все матчи идут
+с одним и тем же config'ом (server's `defaultMatchConfig`).
+Преимущество: можно хардкодить в client, никаких protocol changes,
+ноль server work. Недостаток: tight coupling — если кто-то изменит
+server config, надо помнить обновить client mirror.
+
+Я выбрал хардкод **с тестами**:
+```ts
+expect(STAGE8_DEFAULT_PREVIEW.width).toBe(60);
+expect(STAGE8_DEFAULT_PREVIEW.durationSeconds).toBe(30);  // 300 / 10
+// ... 6 more assertions matching server config
+```
+
+Если кто-то изменит server без обновления client preview — **тесты
+сломаются**, потому что они validate'ят known constants. Это
+"contract test by mutual assertion" — клиент и server должны
+оставаться в sync, и проверяется через failing test.
+
+**Stage 9 TODO** — server будет посылать match config в
+`room_joined` message. Component API не изменится (он уже принимает
+`data: MatchPreviewData`), но source данных переедет с хардкода
+на network message.
+
+Bundle +2 KB raw / +0.5 gzip. ~120 строк component + 40 строк
+tests + 5 строк wire. **Smallest day of Stage 8 в terms of code
+volume** — но не в terms of user value. Чёткое expectation-setting
+is huge UX win.
+
+**Урок дня.** Information-setting в lobby > info-discovery в
+playing. Если игрок узнаёт что match 30s **только во время игры** —
+он не успел стратегически плановать. Если он знает **до Ready** —
+он готов deploy'ить с самого начала.
+
+Classic game design principle: **set expectations before engaging**.
+Не "let them figure it out". Casino UI делает это правильно —
+показывает house edge до bet, не после. Mobile games делают это
+правильно — explain mechanics в onboarding, не во время gameplay.
+
+Lesson for next project: **lobby/preparation phase должна быть
+информативной**. Не minimal "waiting...", а **dashboard** того
+что играть.
+
 ---
 
-### Этап 8 закрыт. Что построили за 29 дней
+### Этап 8 закрыт. Что построили за 30 дней
 
 - 5 микросервисов в `langton-arena-backend/` (только mvp-server
   реально работает; остальные — заготовки для Этапа 9)
@@ -2984,17 +3058,18 @@ Lesson for next game project: budget **2-3 дня для HUD/info UX**
   consistency — sandbox теперь functionally equivalent PvP audio-wise)
 - Match HUD: ants alive count, time remaining countdown, critical
   pulse animation, eliminated state visuals
-- 467/467 тестов: 230 web + 131 core + 106 mvp-server
+- Match preview card в Lobby (config visible до клика Ready)
+- 475/475 тестов: 238 web + 131 core + 106 mvp-server
 - 0 TypeScript ошибок strict mode
 
 **По числам Этапа 8:**
-- 29 дней (из них 2 — побочные квесты Render→VPS и Reddit)
-- ~40 новых файлов в backend, ~27 новых в web
-- Bundle web вырос 132 → 218 КБ (за счёт MatchScreen + WSClient +
+- 30 дней (из них 2 — побочные квесты Render→VPS и Reddit)
+- ~40 новых файлов в backend, ~29 новых в web
+- Bundle web вырос 132 → 220 КБ (за счёт MatchScreen + WSClient +
   clientPrediction + protocol типов + layered WebAudio FX + QR
   encoder + scoreboard + sandbox audio wire + rematch UI +
   onboarding hints + music sequencer + volume panel + milestones +
-  sandbox music wire + HUD enhancements)
+  sandbox music wire + HUD enhancements + match preview)
 - Server image 192 МБ Docker, RAM ~50 МБ idle, ~80 МБ под матчем
 - 0 production incidents за 5 дней live (но 0 пользователей пока)
 
