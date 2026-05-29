@@ -2469,9 +2469,85 @@ Lesson for next project: при planning MVP, MVP scope — это не
 **MVP scope**: если убрать фичу — теряется ли ценность для первого
 пользователя?
 
+### День 24 — First-time onboarding hints
+
+Открыл MatchScreen в режиме инкогнито. Канвас. Движущиеся муравьи.
+Чипы наверху. Чип внизу. **Не понял что делать.** Тыкнул случайно
+в чип — ничего. Тыкнул в канвас — упс, deploy. Только потом увидел
+футер "Click to deploy (you are player #1). Server-driven @ 10 TPS."
+Tiny 10-point monospace в углу. Ни один пользователь не прочитает.
+
+Решение очевидное — contextual hint banners. Один день работы,
+делаю.
+
+`src/lib/onboarding.ts` — pure helpers поверх localStorage. API
+минимальный:
+
+```ts
+hasSeenHint('match_lobby'): boolean
+markHintSeen('match_lobby')
+resetAllHints()  // debug
+```
+
+State хранится под `langton.onboarding.seen` как JSON-массив id'шек.
+Defensive parsing: corrupted JSON, non-array, non-string entries —
+все handled gracefully (fallback в empty Set). **Failure mode
+intentional**: если localStorage недоступен → hints показываются
+каждый раз. Это лучше чем "скрыть навсегда из-за storage issue".
+
+`OnboardingHint` component — floating bottom-center banner. Icon
+(emoji) + text + "Got it" button. Auto-dismiss 8 секунд. Animated
+entry (slide-up + fade-in) и exit. `maxWidth: min(440px,
+calc(100vw - 32px))` — mobile-friendly. `aria-live="polite"`.
+
+Wire в MatchScreen — `useEffect` на phase change устанавливает
+`activeHint` если нужно:
+
+| Phase | Icon | Text |
+|---|---|---|
+| `lobby` | 👋 | "Welcome! Click Ready when you're set. Share QR code or URL to invite a friend." |
+| `playing` | 👆 | "Click any cell on the field to deploy your ant. The match runs 30 seconds..." |
+| `finished` | 🔁 | "Match over! Click Play again — your opponent has to click too..." |
+
+На dismiss — `markHintSeen()` + `setActiveHint(null)`.
+
+**Тесты** — 9 новых. Особенно важны три: corrupted JSON,
+non-array JSON, array с non-string entries. Это все реальные
+failure modes — пользователь может намеренно portage corrupted state
+через DevTools, или какая-нибудь старая версия может оставить
+non-conforming структуру. Все handled.
+
+Bundle +3 KB raw / +0.9 gzip. Component (~110 строк) + lib (~50
+строк) + 3 hint strings. Низкая цена.
+
+**Урок дня.** Onboarding это **не "Help" страница**, это
+**inline education** прямо в момент когда пользователь нуждается
+в подсказке. "Click Ready when you're set" в lobby > full tutorial
+modal перед первым входом. Cognitive load низкий, retention высокий
+(потому что information пришла когда мозг искал её).
+
+И — pattern continues — это **должно было быть в Day 7** одновременно
+с lobby v1. Стоп, должно ли? Нет. В Day 7 у меня ни одной hint не
+было; добавь я onboarding тогда, оно бы устарело к Day 17 mobile
+responsive (положение banner'а изменилось бы), к Day 19 QR code
+(QR не упомянут), к Day 23 rematch (текст про back-to-menu а не
+play-again). Onboarding text **корректно делать в конце этапа** —
+когда UX стабилизировался и hints не устареют через неделю.
+
+Так что Day 24 это **первый** день этапа где "должно было быть
+раньше" не применяется. Я делаю это в правильный момент. Записываю
+это как **counter-example** к pattern'у предыдущих дней: некоторые
+вещи правильно откладывать.
+
+Lesson: разница между "polish на потом" и "polish одновременно с
+core" зависит от **stability of the surrounding UX**. UI element
+который меняется — polish откладывать. Mechanic feedback (sound,
+visual indicator) который не меняется — делать сразу. Mental model
+для следующего проекта.
+
 ---
 
-### Этап 8 закрыт. Что построили за 23 дня
+### Этап 8 закрыт. Что построили за 24 дня
 
 - 5 микросервисов в `langton-arena-backend/` (только mvp-server
   реально работает; остальные — заготовки для Этапа 9)
@@ -2490,15 +2566,17 @@ Lesson for next project: при planning MVP, MVP scope — это не
 - QR code в lobby + Web Share API
 - Live territory scoreboard
 - Rematch flow (request_rematch + 60s timeout + resetForRematch)
-- 407/407 тестов: 170 web + 131 core + 106 mvp-server
+- First-time onboarding hints (3 contextual banners + localStorage)
+- 416/416 тестов: 179 web + 131 core + 106 mvp-server
 - 0 TypeScript ошибок strict mode
 
 **По числам Этапа 8:**
-- 23 дня (из них 2 — побочные квесты Render→VPS и Reddit)
-- ~40 новых файлов в backend, ~20 новых в web
-- Bundle web вырос 132 → 196 КБ (за счёт MatchScreen + WSClient +
+- 24 дня (из них 2 — побочные квесты Render→VPS и Reddit)
+- ~40 новых файлов в backend, ~22 новых в web
+- Bundle web вырос 132 → 198 КБ (за счёт MatchScreen + WSClient +
   clientPrediction + protocol типов + layered WebAudio FX + QR
-  encoder + scoreboard + sandbox audio wire + rematch UI)
+  encoder + scoreboard + sandbox audio wire + rematch UI +
+  onboarding hints)
 - Server image 192 МБ Docker, RAM ~50 МБ idle, ~80 МБ под матчем
 - 0 production incidents за 5 дней live (но 0 пользователей пока)
 
