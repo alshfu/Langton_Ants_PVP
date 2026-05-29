@@ -33,6 +33,7 @@ import { music, moodFromDelta } from '@lib/music';
 import { VolumePanel } from '@components/VolumePanel';
 import { detectMilestones, type Milestone, type MilestoneId } from '@lib/matchMilestones';
 import { MilestoneBanner } from '@components/MilestoneBanner';
+import { MatchPreviewCard, STAGE8_DEFAULT_PREVIEW } from '@components/MatchPreviewCard';
 
 type MatchPhase = 'connecting' | 'lobby' | 'countdown' | 'playing' | 'finished' | 'error';
 
@@ -969,6 +970,10 @@ function LobbyView({
         <PlayerSlot t={t} T={T} player={me} isMe label={t('match.you', 'You')} />
         <PlayerSlot t={t} T={T} player={opponent} isMe={false} label={t('match.opponent', 'Opponent')} />
       </div>
+
+      {/* Day 30: match preview — что играть до Ready клика. Stage 8 MVP
+          фиксированный config (хардкод), Stage 9 будет от server. */}
+      <MatchPreviewCard data={STAGE8_DEFAULT_PREVIEW} />
 
       {me && (
         <Button
