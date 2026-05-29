@@ -3026,9 +3026,111 @@ Lesson for next project: **lobby/preparation phase должна быть
 информативной**. Не minimal "waiting...", а **dashboard** того
 что играть.
 
+### День 31 — Bot opponent с 3 уровнями сложности
+
+Пользователь написал big request: "добавим настройки PvP", "вариант
+игры с ботом", "PvP режим на главное меню". Это 3-day arc минимум.
+Сегодня делаю **бота** — единственный self-contained piece этого arc'а
+с immediate impact.
+
+Проблема **очевидная и painful**: host'ишь PvP room на десктопе,
+шарашь URL — никто. Хочешь поиграть solo для testing'а или потому что
+у тебя нет partner'а в данную минуту. Currently stuck — нет fallback.
+
+**Архитектурное решение: client-side bot через secondary WS**.
+
+Альтернативный server-side bot был бы cleaner UX-wise (server создаёт
+bot connection заранее, user видит "Bot joins instantly"), но требует
+backend changes:
+- Bot connection нужно симулировать как real player
+- Match нужен bot.tick() hook в каждом tick'е
+- Reconnect grace edge cases для bot's "disconnect" (никогда не
+  должен trigger forfeit)
+
+Client-side approach **zero server changes**. Bot — это просто 2-я
+WS connection в той же tab. Server видит его как regular player.
+Pros:
+- Iteration speed: bot strategy улучшается без server deploys
+- Тестируемость: pure helpers покрыты unit tests без real WS
+- Failure isolation: если bot падает, не валит main client connection
+- Mobile-friendly: 2 WS connections это nothing (мы каждый день
+  держим 20-50 fetch connections на любом website)
+
+Cons:
+- Tab close → bot disconnect (acceptable trade-off)
+- Bot deploys carry network roundtrip (но они уже rate-limited
+  serverside так что это OK)
+
+**Difficulty design**. Без access к sim state бот не может smart
+positioning. Решил через **simple heuristic**:
+
+```ts
+const PARAMS = {
+  easy:   { deployIntervalTicks: 50, opponentBias: 0.0  },
+  normal: { deployIntervalTicks: 30, opponentBias: 0.5  },
+  hard:   { deployIntervalTicks: 15, opponentBias: 0.85 },
+};
+```
+
+opponentBias = вероятность что deploy идёт в opp's quadrant. Без
+sim state мы не знаем точно где opp territory, но из spawn positions
+defaultMatchConfig (p0 corner (5,5), p1 corner (54,54)) можно
+выводить квадранты:
+
+```ts
+if (useOpponentArea) {
+  if (mySlotIdx === 0) {
+    xRange = [Math.floor(gridWidth / 2), gridWidth - 1];  // правая половина
+    yRange = [Math.floor(gridHeight / 2), gridHeight - 1];
+  } else {
+    xRange = [0, Math.floor(gridWidth / 2)];              // левая половина
+    yRange = [0, Math.floor(gridHeight / 2)];
+  }
+}
+```
+
+Это **good enough heuristic**: hard bot will mostly deploy в opp's
+territory area, creating aggressive contests. Easy bot uniform — feels
+like opponent who doesn't strategize.
+
+**Stage 9 ideas**: bot который actually replays engine locally и
+видит real territory state. Then strategic decisions like "deploy near
+frontier" или "reinforce contested cell". Не required для MVP — basic
+3 difficulty levels достаточно для playtesting.
+
+**Testing approach**. Pure helpers (`shouldDeploy`, `pickDeployLocation`)
+покрыты 15 tests. Тестируемость через **custom rng parameter**:
+
+```ts
+pickDeployLocation(60, 60, 0, 'hard', () => 0.5); // deterministic
+```
+
+Это **canonical test pattern для random-dependent code**. Production
+uses `Math.random` default. Tests inject deterministic function. Без
+этого pattern'а random-based tests были бы flaky.
+
+BotPlayer class **не покрыт unit tests** — требует real WS, что
+integration territory. Это правильное dividing line: pure logic
+unit-tested, side-effecting code integration-tested manually через
+gh-pages.
+
+**Урок дня.** Multiplayer games **должны иметь bot fallback** в MVP.
+Без него вы блокируете user'а на "wait until friend joins" — это
+**99% drop-off**. Большинство игроков попробуют один раз и закроют
+вкладку если не получится сразу поиграть.
+
+Lesson: для следующего multiplayer project budget **2-3 дня для bot
+opponent** с самого начала. Don't think of bots как "later if AI is
+fancy" — это **MVP requirement** для playable demo. Single-player vs
+bot должно работать **до первой публичной демонстрации**.
+
+Bundle +6 KB raw / +1.7 gzip. Самый большой growth с Day 25 music —
+~500 строк новых modules. Это justified — это **new game mode**, не
+incremental feature.
+
 ---
 
-### Этап 8 закрыт. Что построили за 30 дней
+### Этап 8 закрыт. Что построили за 31 день
 
 - 5 микросервисов в `langton-arena-backend/` (только mvp-server
   реально работает; остальные — заготовки для Этапа 9)
@@ -3059,17 +3161,19 @@ Lesson for next project: **lobby/preparation phase должна быть
 - Match HUD: ants alive count, time remaining countdown, critical
   pulse animation, eliminated state visuals
 - Match preview card в Lobby (config visible до клика Ready)
-- 475/475 тестов: 238 web + 131 core + 106 mvp-server
+- Bot opponent (3 difficulty levels: Easy/Normal/Hard) — solo
+  fallback для PvP, client-side через secondary WS
+- 490/490 тестов: 253 web + 131 core + 106 mvp-server
 - 0 TypeScript ошибок strict mode
 
 **По числам Этапа 8:**
-- 30 дней (из них 2 — побочные квесты Render→VPS и Reddit)
-- ~40 новых файлов в backend, ~29 новых в web
-- Bundle web вырос 132 → 220 КБ (за счёт MatchScreen + WSClient +
+- 31 день (из них 2 — побочные квесты Render→VPS и Reddit)
+- ~40 новых файлов в backend, ~32 новых в web
+- Bundle web вырос 132 → 226 КБ (за счёт MatchScreen + WSClient +
   clientPrediction + protocol типов + layered WebAudio FX + QR
   encoder + scoreboard + sandbox audio wire + rematch UI +
   onboarding hints + music sequencer + volume panel + milestones +
-  sandbox music wire + HUD enhancements + match preview)
+  sandbox music wire + HUD enhancements + match preview + bot opponent)
 - Server image 192 МБ Docker, RAM ~50 МБ idle, ~80 МБ под матчем
 - 0 production incidents за 5 дней live (но 0 пользователей пока)
 
