@@ -353,6 +353,15 @@ export const LangtonField = forwardRef<LangtonFieldHandle, LangtonFieldProps>(fu
         imageRendering: 'pixelated',
         background: bg,
         cursor: (editMode || deployMode) ? 'crosshair' : 'default',
+        // Day 17 mobile: touchAction:'none' блокирует double-tap zoom и pan;
+        // userSelect:'none' предотвращает text-selection на long-press.
+        // maxWidth:'100%' гарантирует что канвас не вылазит за контейнер на
+        // узких экранах когда чей-то расчёт cellSize промазал.
+        touchAction: 'none',
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
+        WebkitTapHighlightColor: 'transparent',
+        maxWidth: '100%',
       }}
     />
   );

@@ -56,6 +56,29 @@ function getBrowserLocale(): string {
   } catch { return 'en'; }
 }
 
+/**
+ * Day 17: viewport-size hook. Слушает resize + orientationchange.
+ * Используется для адаптивного cellSize канваса — раньше был фиксированный
+ * 800px и канвас не помещался на телефоне.
+ */
+function useViewportSize(): { w: number; h: number } {
+  const getSize = () => ({
+    w: typeof window !== 'undefined' ? window.innerWidth : 1024,
+    h: typeof window !== 'undefined' ? window.innerHeight : 768,
+  });
+  const [size, setSize] = useState(getSize);
+  useEffect(() => {
+    const update = () => setSize(getSize());
+    window.addEventListener('resize', update);
+    window.addEventListener('orientationchange', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('orientationchange', update);
+    };
+  }, []);
+  return size;
+}
+
 export function MatchScreen() {
   const { tokens: T } = useTheme();
   const t = useT();
@@ -128,10 +151,21 @@ export function MatchScreen() {
     ),
     [matchConfig],
   );
-  // Cell size: тот же расчёт что в SandboxScreen
-  const cellSize = matchConfig
-    ? Math.max(1, Math.min(14, Math.floor(800 / Math.max(matchConfig.width, matchConfig.height))))
-    : 8;
+  // Day 17: адаптивный cellSize от viewport (раньше был фиксированный 800).
+  // Chrome ≈ top bar 56 + chips 32 + footer 24 + paddings ~80 = ~190px вертикали.
+  // Горизонтали: paddings + border ~ 40px (16 каждая сторона на мобиле).
+  const vp = useViewportSize();
+  const isNarrow = vp.w < 720;
+  const cellSize = useMemo(() => {
+    if (!matchConfig) return 8;
+    const avail = Math.min(
+      vp.w - (isNarrow ? 24 : 80),
+      vp.h - (isNarrow ? 220 : 240),
+      800,
+    );
+    const maxDim = Math.max(matchConfig.width, matchConfig.height);
+    return Math.max(1, Math.min(14, Math.floor(avail / maxDim)));
+  }, [matchConfig, vp.w, vp.h, isNarrow]);
 
   // ─── WS connection ────────────────────────────────────────────────────────
 
@@ -415,20 +449,24 @@ export function MatchScreen() {
       background: T.bg, color: T.textPrimary,
       display: 'flex', flexDirection: 'column',
     }}>
-      {/* Top bar */}
+      {/* Top bar — Day 17: responsive flex-wrap для узких экранов */}
       <div style={{
-        height: 56, padding: '0 24px',
-        display: 'flex', alignItems: 'center', gap: 14,
+        minHeight: 56, padding: isNarrow ? '8px 12px' : '0 24px',
+        display: 'flex', alignItems: 'center', flexWrap: 'wrap',
+        gap: isNarrow ? 8 : 14,
         borderBottom: `1px solid ${T.border}`, background: T.bgElevated,
       }}>
         <Button variant="ghost" size="sm" onClick={goBack}>
           ← {t('common.back', 'Back')}
         </Button>
-        <Eyebrow>· {t('match.title', 'PvP Match')}</Eyebrow>
+        {!isNarrow && <Eyebrow>· {t('match.title', 'PvP Match')}</Eyebrow>}
         {roomCode && (
           <Chip color={T.info} size="sm">room: {roomCode}</Chip>
         )}
-        <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+        <span style={{
+          marginLeft: isNarrow ? 0 : 'auto',
+          display: 'flex', gap: 8, flexWrap: 'wrap',
+        }}>
           <Chip
             color={
               phase === 'connecting'  ? T.warning
@@ -442,18 +480,21 @@ export function MatchScreen() {
           >
             {phase}
           </Chip>
-          <Chip color={T.accent} size="sm">
-            👤 {nicknameRef.current}
-          </Chip>
+          {!isNarrow && (
+            <Chip color={T.accent} size="sm">
+              👤 {nicknameRef.current}
+            </Chip>
+          )}
         </span>
       </div>
 
-      {/* Main area */}
+      {/* Main area — Day 17: smaller padding на мобиле чтобы canvas помещался */}
       <div style={{
         flex: 1,
         display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
-        padding: 32, gap: 24,
+        padding: isNarrow ? 12 : 32,
+        gap: isNarrow ? 12 : 24,
       }}>
         {phase === 'connecting' && <ConnectingView t={t} T={T} />}
         {phase === 'lobby' && (
