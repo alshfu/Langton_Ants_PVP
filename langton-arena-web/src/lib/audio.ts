@@ -29,13 +29,18 @@ export interface AudioApi {
 }
 
 export type SoundId =
-  | 'countdown_beep'   // 3, 2, 1 — chime с octave stack
-  | 'countdown_go'     // GO! — cinematic burst (sub kick + mid + high shimmer)
-  | 'deploy'           // Click satisfying — body + transient + noise burst
-  | 'victory'          // 5-note arpeggio C-E-G-C-E, multilayered
-  | 'defeat'           // Descending Am chord pad с pitch drift
-  | 'tie'              // FM bell, neutral но богатый обертонами
-  | 'ui_click';        // Day 22: soft tactile click для UI buttons (light deploy)
+  | 'countdown_beep'    // 3, 2, 1 — chime с octave stack
+  | 'countdown_go'      // GO! — cinematic burst (sub kick + mid + high shimmer)
+  | 'deploy'            // Click satisfying — body + transient + noise burst
+  | 'victory'           // 5-note arpeggio C-E-G-C-E, multilayered
+  | 'defeat'            // Descending Am chord pad с pitch drift
+  | 'tie'               // FM bell, neutral но богатый обертонами
+  | 'ui_click'          // Day 22: soft tactile click для UI buttons (light deploy)
+  // Day 27 milestone stingers — короткие punctuating events поверх music.
+  | 'stinger_lead'      // Crossed 50% — bright rising fanfare
+  | 'stinger_dominance' // Crossed 75% — triumphant chord pad
+  | 'stinger_critical'  // Dropped below 25% — dark warning
+  | 'stinger_comeback'; // Overtook opponent — quick ascending arpeggio
 
 // Day 26: per-channel volume keys. Все [0..1] floats.
 const MUTE_STORAGE_KEY = 'langton.audio.muted';
@@ -390,6 +395,67 @@ function playUiClick(c: AudioContext, t: number): void {
   osc(c, 'square', 1800, 1100, t, 0.001, 0.002, 0.018, 0.06, 1, 0);
 }
 
+// ─── Day 27: Milestone stingers ──────────────────────────────────────────────
+
+function playStingerLead(c: AudioContext, t: number): void {
+  // Crossed 50% — bright C-E-G-B-D rising fanfare (Cmaj9), reverb tail
+  // Lead motif триангл + sine sub для warmth
+  const notes = [523.25, 659.25, 783.99, 987.77, 1174.66]; // C5 E5 G5 B5 D6
+  notes.forEach((freq, i) => {
+    const start = t + i * 0.07;
+    osc(c, 'triangle', freq, freq, start, 0.005, 0.05, 0.20, 0.40, 1, 0.8);
+    osc(c, 'sine', freq / 2, freq / 2, start, 0.005, 0.05, 0.20, 0.18, 1, 0.6);
+  });
+  // Sparkle noise burst в конце для shimmer
+  noiseBurst(c, t + 0.35, 0.15, 0.12, 5000, 1, 0.6);
+}
+
+function playStingerDominance(c: AudioContext, t: number): void {
+  // Crossed 75% — sustained C major triad pad + sparkle. Triumphant pad.
+  // 3 ноты triad одновременно с длинным sustain.
+  const triad = [523.25, 659.25, 783.99]; // C5 E5 G5
+  triad.forEach((freq) => {
+    osc(c, 'triangle', freq, freq, t, 0.02, 0.35, 0.45, 0.32, 1, 0.9);
+    osc(c, 'sine', freq * 2, freq * 2, t, 0.04, 0.30, 0.40, 0.18, 1, 0.9);
+  });
+  // High shimmer triad октавой выше для glory
+  osc(c, 'triangle', 1046.50, 1046.50, t + 0.10, 0.005, 0.20, 0.40, 0.20, 1, 0.9);
+  osc(c, 'triangle', 1318.51, 1318.51, t + 0.13, 0.005, 0.20, 0.40, 0.18, 1, 0.9);
+  // Noise burst sweep — brushed cymbal feel
+  noiseBurst(c, t, 0.45, 0.08, 3000, 1, 0.7);
+}
+
+function playStingerCritical(c: AudioContext, t: number): void {
+  // Dropped below 25% — dark dramatic warning. Low Am chord + dissonant
+  // tritone interval. Pitch sweep down для tension.
+  // Sub bass kick
+  osc(c, 'sine', 80, 50, t, 0.005, 0.05, 0.35, 0.65, 1, 0.4);
+  // Am chord (low): A2-C3-E3
+  osc(c, 'sawtooth', 110.00, 105.00, t + 0.05, 0.02, 0.15, 0.35, 0.25, 1, 0.8);
+  osc(c, 'sawtooth', 130.81, 124.50, t + 0.05, 0.02, 0.15, 0.35, 0.22, 1, 0.8);
+  osc(c, 'sawtooth', 164.81, 156.50, t + 0.05, 0.02, 0.15, 0.35, 0.20, 1, 0.8);
+  // Dissonant tritone (Bb against E) для эмоционального punch
+  osc(c, 'triangle', 233.08, 220.00, t + 0.18, 0.01, 0.10, 0.30, 0.18, 1, 0.9);
+  // Low rumble noise
+  noiseBurst(c, t, 0.5, 0.15, 100, 1, 0.4);
+}
+
+function playStingerComeback(c: AudioContext, t: number): void {
+  // Lead change — quick ascending arpeggio Am → C major (mood shift)
+  // Suggests "you've turned the tide"
+  // Bass hit
+  osc(c, 'sine', 110, 110, t, 0.005, 0.03, 0.20, 0.45, 1, 0.5);
+  // Arpeggio ascending Am: A3-C4-E4-A4 → resolving to C5
+  const notes = [220.00, 261.63, 329.63, 440.00, 523.25];
+  notes.forEach((freq, i) => {
+    const start = t + 0.04 + i * 0.06;
+    osc(c, 'square', freq, freq, start, 0.005, 0.04, 0.12, 0.28, 1, 0.7);
+    osc(c, 'triangle', freq * 2, freq * 2, start, 0.005, 0.03, 0.10, 0.16, 1, 0.7);
+  });
+  // Sparkle noise в конце
+  noiseBurst(c, t + 0.30, 0.10, 0.10, 4500, 1, 0.5);
+}
+
 // ─── Public play() dispatch ──────────────────────────────────────────────
 
 function playSound(id: SoundId): void {
@@ -401,13 +467,17 @@ function playSound(id: SoundId): void {
   }
   const now = c.currentTime;
   switch (id) {
-    case 'countdown_beep': playCountdownBeep(c, now); break;
-    case 'countdown_go':   playCountdownGo(c, now); break;
-    case 'deploy':         playDeploy(c, now); break;
-    case 'victory':        playVictory(c, now); break;
-    case 'defeat':         playDefeat(c, now); break;
-    case 'tie':            playTie(c, now); break;
-    case 'ui_click':       playUiClick(c, now); break;
+    case 'countdown_beep':    playCountdownBeep(c, now); break;
+    case 'countdown_go':      playCountdownGo(c, now); break;
+    case 'deploy':            playDeploy(c, now); break;
+    case 'victory':           playVictory(c, now); break;
+    case 'defeat':            playDefeat(c, now); break;
+    case 'tie':               playTie(c, now); break;
+    case 'ui_click':          playUiClick(c, now); break;
+    case 'stinger_lead':      playStingerLead(c, now); break;
+    case 'stinger_dominance': playStingerDominance(c, now); break;
+    case 'stinger_critical':  playStingerCritical(c, now); break;
+    case 'stinger_comeback':  playStingerComeback(c, now); break;
   }
 }
 

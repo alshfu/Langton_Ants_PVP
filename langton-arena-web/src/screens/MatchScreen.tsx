@@ -31,6 +31,8 @@ import { hasSeenHint, markHintSeen, type HintId } from '@lib/onboarding';
 import { OnboardingHint } from '@components/OnboardingHint';
 import { music, moodFromDelta } from '@lib/music';
 import { VolumePanel } from '@components/VolumePanel';
+import { detectMilestones, type Milestone, type MilestoneId } from '@lib/matchMilestones';
+import { MilestoneBanner } from '@components/MilestoneBanner';
 
 type MatchPhase = 'connecting' | 'lobby' | 'countdown' | 'playing' | 'finished' | 'error';
 
@@ -135,6 +137,12 @@ export function MatchScreen() {
   // Day 26: volume panel popover state. anchor stores button coords чтобы
   // позиционировать popover. null → закрыт.
   const [volumePanel, setVolumePanel] = useState<{ right: number; top: number } | null>(null);
+  // Day 27: milestone banner state. activeMilestone — current banner;
+  // prevScoreboardRef — для detect threshold crossings; firedMilestonesRef —
+  // set of ids уже fired в этом матче (не повторять).
+  const [activeMilestone, setActiveMilestone] = useState<Milestone | null>(null);
+  const prevScoreboardRef = useRef<ScoreboardSummary | null>(null);
+  const firedMilestonesRef = useRef<Set<MilestoneId>>(new Set());
   // Day 20: live scoreboard updated на каждый engine tick.
   const [scoreboard, setScoreboard] = useState<ScoreboardSummary | null>(null);
   // Day 23: rematch state. iRequestedRematch = клик "Play Again"; opp = тоже.
@@ -235,6 +243,42 @@ export function MatchScreen() {
       music.stop();
     };
   }, [phase]);
+  // Day 27: detect milestones на scoreboard change. Trigger stinger + banner.
+  // firedMilestonesRef гарантирует что каждый milestone стреляет максимум
+  // один раз за матч (даже если повторно пересекает threshold).
+  useEffect(() => {
+    if (phase !== 'playing' || !scoreboard) {
+      // Reset на новый матч (включая rematch)
+      if (phase === 'lobby' || phase === 'countdown') {
+        firedMilestonesRef.current.clear();
+        prevScoreboardRef.current = null;
+      }
+      return;
+    }
+    const myIdx = myPlayerIdxRef.current;
+    const events = detectMilestones(prevScoreboardRef.current, scoreboard, myIdx);
+    prevScoreboardRef.current = scoreboard;
+    if (events.length === 0) return;
+    // Take первый non-fired (lead change > 50_up > 75_up > 25_down priority)
+    const order: MilestoneId[] = ['lead_change', 'crossed_75_up', 'crossed_50_up', 'crossed_25_down'];
+    const sorted = events.slice().sort((a, b) =>
+      order.indexOf(a.id) - order.indexOf(b.id),
+    );
+    for (const ev of sorted) {
+      if (firedMilestonesRef.current.has(ev.id)) continue;
+      firedMilestonesRef.current.add(ev.id);
+      setActiveMilestone(ev);
+      // Stinger sound per milestone
+      const soundId =
+        ev.id === 'crossed_50_up'   ? 'stinger_lead'
+        : ev.id === 'crossed_75_up' ? 'stinger_dominance'
+        : ev.id === 'crossed_25_down' ? 'stinger_critical'
+        : 'stinger_comeback';
+      fx.play(soundId);
+      break; // показываем по одному banner'у — за tick max 1
+    }
+  }, [phase, scoreboard]);
+
   // Intensity + mood обновляются на каждый tick через scoreboard updates.
   useEffect(() => {
     if (phase !== 'playing' || !matchConfig || !scoreboard) return;
@@ -745,6 +789,14 @@ export function MatchScreen() {
           <ErrorView t={t} T={T} text={errorText} onBack={goBack} />
         )}
       </div>
+
+      {/* Day 27: milestone banner — territory thresholds + lead changes */}
+      {activeMilestone && (
+        <MilestoneBanner
+          milestone={activeMilestone}
+          onDismiss={() => setActiveMilestone(null)}
+        />
+      )}
 
       {/* Day 26: volume panel popover (3 sliders + mute toggle) */}
       {volumePanel && (
