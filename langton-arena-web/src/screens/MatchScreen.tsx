@@ -25,6 +25,7 @@ import {
 } from '@lib/resumeToken';
 import { PLAYER_PALETTE } from '@core/shared/constants';
 import { fx } from '@lib/audio';
+import { renderQrSvg, tryWebShare, isWebShareAvailable } from '@lib/qrCode';
 
 type MatchPhase = 'connecting' | 'lobby' | 'countdown' | 'playing' | 'finished' | 'error';
 
@@ -695,7 +696,7 @@ function ConnectingView({ t, T }: SubViewBase) {
 }
 
 function LobbyView({
-  t, T, players, me, opponent, onReadyToggle, onCopyUrl,
+  t, T, players, me, opponent, roomCode, onReadyToggle, onCopyUrl,
 }: SubViewBase & {
   players: PlayerInfo[];
   me: PlayerInfo | undefined;
@@ -704,6 +705,34 @@ function LobbyView({
   onReadyToggle: () => void;
   onCopyUrl: () => void;
 }) {
+  // Day 19: room invite URL — для QR code и Web Share.
+  const shareUrl = typeof window !== 'undefined' ? window.location.href : '';
+
+  // QR SVG memo'ится по URL, чтобы не пересчитывать на каждый render
+  // (PlayerSlot ready toggle вызывает rerender LobbyView).
+  const qrSvg = useMemo(
+    () => shareUrl
+      ? renderQrSvg(shareUrl, { size: 180, darkColor: T.textPrimary, lightColor: T.bg })
+      : '',
+    [shareUrl, T.textPrimary, T.bg],
+  );
+
+  // Web Share availability — лениво (не во время SSR).
+  const webShareOk = useMemo(() => isWebShareAvailable(), []);
+
+  const handleShare = useCallback(async () => {
+    if (webShareOk) {
+      const shared = await tryWebShare({
+        title: 'Langton Arena · PvP match',
+        text: `Join my room ${roomCode} on Langton Arena!`,
+        url: shareUrl,
+      });
+      if (shared) return;
+      // fallback на copy если share rejected (NotAllowedError)
+    }
+    onCopyUrl();
+  }, [webShareOk, roomCode, shareUrl, onCopyUrl]);
+
   return (
     <div style={{
       width: '100%', maxWidth: 600,
@@ -739,15 +768,32 @@ function LobbyView({
 
       {!opponent && (
         <div style={{
-          padding: 14,
+          padding: 16,
           background: T.bgOverlay,
           border: `1px dashed ${T.border}`,
           borderRadius: T.radiusSm,
-          display: 'flex', flexDirection: 'column', gap: 10,
+          display: 'flex', flexDirection: 'column', gap: 14,
         }}>
           <div style={{ fontSize: 12, color: T.textMuted, lineHeight: 1.5 }}>
-            {t('match.shareHint', 'Waiting for opponent — share this URL:')}
+            {t('match.shareHint', 'Waiting for opponent — invite them to join:')}
           </div>
+
+          {/* Day 19: QR code — point phone camera, join instantly */}
+          {qrSvg && (
+            <div
+              data-testid="lobby-qr"
+              style={{
+                display: 'flex', justifyContent: 'center',
+                padding: 8,
+                background: T.bg,
+                border: `1px solid ${T.border}`,
+                borderRadius: T.radiusSm,
+              }}
+              dangerouslySetInnerHTML={{ __html: qrSvg }}
+            />
+          )}
+
+          {/* URL bar (на случай если QR не отсканировать) */}
           <div style={{
             padding: 8,
             background: T.bg,
@@ -759,10 +805,19 @@ function LobbyView({
             overflow: 'auto',
             whiteSpace: 'nowrap',
           }}>
-            {typeof window !== 'undefined' ? window.location.href : '?room=...'}
+            {shareUrl || '?room=...'}
           </div>
-          <Button variant="ghost" size="sm" onClick={onCopyUrl}>
-            📋 {t('match.copyShareUrl', 'Copy URL')}
+
+          {/* Day 19: Web Share API если доступен, иначе fallback copy */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleShare}
+            data-testid="share-button"
+          >
+            {webShareOk
+              ? `📤 ${t('match.shareInvite', 'Share invite')}`
+              : `📋 ${t('match.copyShareUrl', 'Copy URL')}`}
           </Button>
         </div>
       )}

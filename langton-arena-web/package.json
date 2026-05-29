@@ -19,6 +19,7 @@
   "dependencies": {
     "jsdom": "^29.1.1",
     "lz-string": "^1.5.0",
+    "qrcode-generator": "^2.0.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
