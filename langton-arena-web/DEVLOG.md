@@ -1828,6 +1828,351 @@ e2e-audit.mjs обновлён до **v3.2** — секция `replay`:
 
 ---
 
+## Неделя 15-17 · Этап 8 — PvP MVP backend (реальный матч между браузерами)
+
+Песочница закрыта. Этап 7 поставил точку: replay, URL share, JSON export.
+Дальше — это уже не sandbox а matchmaking/lobby/match screens. Backend
+стейджинг. WebSocket. Реальные два браузера в одной комнате.
+
+Перед стартом Этапа 8 — две недели простоя на доках. Мы хотели чтобы
+сторонний человек, попавший на github, понял что это вообще. Переписали
+README, добавили LICENSE (MIT), залили demo GIF/MP4, прописали topics.
+Параллельно Web Claude (отдельный чат-инстанс через chat.anthropic.com,
+без файлового доступа) написал spec v8.1 — PvP MVP с минимальным
+протоколом, без БД, без матчмейкера, fixed-config матч из URL. 20 страниц,
+детально по сообщениям и edge cases. **Час обсуждения сэкономил неделю**
+— мы взяли этот spec как контракт и не отклонялись от него до 12-го дня.
+
+### День 1-2 — Монорепо и shared engine
+
+`langton-arena-backend/` появился как pnpm workspace с двумя пакетами:
+`core/` (shared engine) и `services/mvp-server/` (WS server). Перенесли
+`engine.ts` и `contract/state.ts` из web в `core/`, опубликовали как
+`@langton/core` через workspace protocol. Web-клиент теперь импортирует
+тот же файл что и сервер — никаких "ой а у нас разные правила
+размножения".
+
+Это та архитектура которую мы хотели с Дня 41 ("свой код core/ между
+фронтом и бэком — не оптимизация, а необходимость"). 20 дней между
+решением и реализацией. Если бы мы сделали это в День 41, потеряли бы
+неделю на coordination, и Этап 7 (replay) был бы другим — replay engine
+жил бы только во фронте и backend не смог бы валидировать. Хорошо что
+дотянули до момента когда оно реально понадобилось.
+
+WS server — голый `ws` пакет, никакого Fastify, никакого Socket.IO.
+Голый TCP-сокет + JSON в одну строку. **Никакой буфер-копилки, никакого
+batching.** Это умышленно: проще диагностировать, проще тестировать,
+производительности достаточно для 2 игроков × 60×60 поле × 10 TPS.
+MessagePack отложили на Этап 9 — может вообще не понадобится.
+
+### День 3 — Room manager + animal nicknames
+
+`RoomManager` — Map<roomCode, Room>. Никаких БД. При перезапуске
+сервера все комнаты исчезают — это нормально для MVP. Никнеймы
+генерируются на клиенте через `getOrCreateNickname()` (зверь + 3 цифры:
+`SilverWolf427`), сохраняются в localStorage. Сервер их не валидирует
+и не отдаёт никому — просто передаёт между клиентами. Идентификация
+через `clientId` (UUID на каждое соединение).
+
+### День 4 — Match lifecycle
+
+Конечный автомат комнаты: `lobby → starting → playing → ended`. Каждое
+состояние имеет одну точку выхода. `match_starting` шлёт countdown
+(3 секунды по дефолту, 50ms в тестах), потом `match_started`, дальше
+`setInterval(tick, 100)` (10 TPS), на каждом тике server считает движок
+и шлёт diff в `match_tick`. На последнем тике (`tick === MATCH_DURATION_TICKS`)
+— `match_ended` с winner и replay URL.
+
+Здесь окупился детерминизм. Server и client используют один движок,
+один seed, одни inputs. Server-driven ticks: client не считает сам,
+только применяет deploys которые приходят в `match_tick`. Это значит
+что **если клиент отвалится и переподключится, мы можем переиграть
+все предыдущие тики с сохранённого seed и догнать сервер** — что мы
+и сделали в День 13.
+
+### День 5 — Deploy validation
+
+Сервер валидирует `{x, y, tick}` каждого deploy: range check, queue в
+правильный тик, проверка `canDeploy()` (anywhere / own_territory /
+near_alive). Невалидные — `error('INVALID_DEPLOY')` с `context: {x, y, tick}`
+чтобы клиент мог откатить ghost. Валидные — кладутся в queue для
+следующего тика и применяются через `applyDeployAction()` — тот же
+helper что движок sandbox использует. Это важно: deploy на сервере и
+deploy в replay используют один и тот же код.
+
+### День 6-7 — WSClient + MatchScreen v1
+
+`WSClient` — обёртка над WebSocket с auto-reconnect, exponential backoff,
+typed `onMessage`. Frontend MatchScreen появился как пустой экран
+с двумя phase'ами: `connecting` и `lobby`. Lobby показывает 2 слота,
+"Ready" toggle, share URL. Никакого канваса ещё.
+
+Здесь сделали ошибку которую заметили только на Дне 15: lobby ждёт
+оппонента бесконечно. Если первый игрок пришёл в комнату и второй
+не пришёл — комната живёт пока сервер не перезагрузится. Mental note:
+"добавим timeout позже". И **позже превратилось в 8 дней**.
+
+### День 8 — Countdown + playing phase
+
+Захватили `matchConfig` и `seed` из `match_starting`, передали в
+`LangtonField` через `PlayingView`. Engine стартует с server-applied
+seed. Все клиенты видят одинаковую картинку с первого тика.
+
+### День 9 — Server-driven ticks + deploy click
+
+Это был день когда заработал **реальный матч между двумя браузерами**.
+Один MacBook, два разных профиля Chrome. Запустили сервер локально,
+открыли две вкладки с одним `?room=ABCDE`. Они увидели друг друга в
+lobby, нажали Ready, через 3 секунды countdown — поле, муравьи,
+тики идут синхронно, кликами выпускаются deploys.
+
+Запись в этот день должна быть отдельной потому что это первый день
+после 60 дней sandbox когда было ощущение "ага мы делаем игру а не
+симулятор". Sandbox был аналитика. PvP — это игра.
+
+### День 10 — Client-side prediction
+
+Проблема: между кликом и появлением ant'а проходит ~100ms (RTT/2 + tick
+delay). При 10 TPS это полтика — заметно лагает. Решение: optimistic
+ghost overlay — рисуем translucent квадрат с цветом игрока в клетке
+сразу при клике, удаляем когда server echo'ит deploy в `match_tick`.
+Если server отклонил (`INVALID_DEPLOY`) — откатываем ghost.
+
+Reconciliation оказался сложнее чем казалось из статей. Mapping
+"какой ghost к какому server-echo" — это не "по индексу" а по
+`{x, y, tick}` context. Если несколько ghost'ов в очереди и один
+отклонён — нужно матчить по координатам. Извлекли `clientPrediction.ts`
+как pure functions (`makeGhost`, `addGhost`, `reconcileGhosts`,
+`rejectGhost`, `gcStaleGhosts`) и написали 26 тестов на edge cases.
+
+**Это вторая большая удача от детерминизма** — мы могли тестировать
+reconciliation без сервера, чисто на функциях.
+
+### День 11 — Match end banner + replay URL
+
+`match_ended` шлёт `MatchResult` (winner + scores) и `replayUrl`
+(URL-encoded replay через lz-string). Frontend показывает `FinishedView`
+с overlay "P1 wins by territory · 1842 vs 1156". Из Этапа 7 уже была
+готова `urlShare.ts` — просто подключили.
+
+Replay URL — это reuse Stage 7 механизма: deploy inputs + seed +
+config → bit-identical playback. **Replay PvP матча не отличается от
+replay sandbox прогона** — играется тем же `replayPlayback` хуком,
+открывается на том же URL. Этап 7 заплатил дивиденды.
+
+### День 12 — Inline replay payload
+
+Расширили `match_ended` чтобы он содержал inline `replay: Replay`
+объект (не только URL). Это для local save в `replayStorage` — без
+needing to decode URL. Теперь после матча кнопка "Save replay" работает
+без сети. Плюс side-effect: replay PvP матча появляется в Sandbox →
+Replays вкладке, можно перепроигрывать рядом с sandbox-replay'ями.
+
+### День 13 — Reconnect grace + resume token
+
+Reality check: соединения рвутся. Спросили "что если игрок закрыл
+вкладку, или у него отвалился wifi на 5 секунд". Старый код: match
+auto-ends с forfeit, потерянная партия. Это не годится для production.
+
+Добавили grace period (15 секунд по дефолту). При `ws close`:
+1. Помечаем `player.disconnected = true`
+2. Стартуем `setTimeout(forfeit, graceDisconnectMs)`
+3. Если игрок вернулся в это окно с правильным `resumeToken` —
+   очищаем timer, шлём `match_resume_state` (полный snapshot текущего
+   движка), match продолжается. Если нет — forfeit.
+
+`resumeToken` — UUID который сервер генерирует на `join_room`,
+шлёт клиенту в `room_joined`, клиент сохраняет в sessionStorage.
+При reconnect шлёт его обратно — server валидирует и считает это
+тем же игроком.
+
+Если разрывается **наш** wifi — `WSClient` сам реконнектится с
+exponential backoff. UI показывает "Reconnecting…" overlay. Если
+разрывается **оппонента** — мы видим "Opponent reconnecting…"
+с подсказкой "If they don't return in time you win by forfeit".
+Маленькая UX-деталь которая снимает тревогу: пользователь не думает
+что сервер сломался — он понимает что оппонент пропал.
+
+### Боковой квест 1 — Render.com → VPS
+
+Параллельно с Днём 13 мы попытались задеплоить mvp-server на Render.com.
+Написали `Dockerfile`, `render.yaml`, HTTP health endpoint. Render
+заявляет про free tier но требует credit card "for verification".
+Карта не привязалась с первой попытки. День потерян на это, в итоге
+выгнали оттуда и взяли VPS на Aeza (81.88.23.207, Ubuntu 24.04).
+
+VPS оказался правильным выбором: ssh, systemd, nginx, certbot — всё
+честно и предсказуемо. Привязали домен `alshfu.com` (купили на one.com),
+настроили reverse proxy с WS upgrade, поставили Let's Encrypt cert.
+**Заняло половину дня. DNS пропагация заняла два часа** — это всегда
+больше чем ожидаешь.
+
+Live: `wss://alshfu.com`. Frontend пушит туда через `VITE_WS_URL` env
+переменную при сборке. Локальная разработка по-прежнему ходит на
+`ws://localhost:8080` — fallback в `getWsUrl()`.
+
+### День 14 — Rate limiting + error budget
+
+Бот-защита. Без неё первый дурак с `for (i=0; i<1000; i++) ws.send(deploy)`
+кладёт сервер. Реализовали sliding-window limiter (alternative к
+token-bucket — проще тестировать, не нужны таймеры).
+
+Три отдельных лимита на connection:
+- `deploy` — 5/sec (защита от click-spam)
+- `message` — 30/sec (защита от protocol-flood)
+- `errorBudget` — 5 ошибок / 10sec (защита от malformed JSON spam)
+
+Превышение `deploy` или `message` → `error('RATE_LIMIT_EXCEEDED')`,
+**не считается как error в errorBudget** — иначе client получивший
+лимит сам себя забанит. Это аккуратная деталь которую заметили
+только написав тест "spam ratelimit 100 раз → не должно банить".
+
+Превышение errorBudget → connection close. 5 malformed JSON в окно
+10 секунд — мы вас баним. Грубо но работает для MVP.
+
+### День 15 — Edge cases: graceful shutdown + orphan lobby
+
+Закрыли тот баг с Дня 6-7. Lobby теперь имеет 10-минутный таймер: если
+второй игрок не пришёл — `error('ROOM_TIMEOUT')` + cleanup. Если оба
+пришли — disarm. Если один ушёл из двух и осталось 1 — re-arm.
+
+Graceful shutdown: `server.stop()` теперь сначала шлёт `match_ended`
+(reason='server_shutdown') во все активные матчи и `error('SERVER_SHUTDOWN')`
+в countdown-комнаты. Это для systemd `systemctl restart` — раньше
+клиенты получали бы голый "connection lost", сейчас видят понятный
+banner.
+
+### Боковой квест 2 — Reddit promotion (зафейлился)
+
+Решили попробовать запостить на r/cellular_automata, r/playmygame,
+r/gamedev, r/cellular_automata. Подготовили title, body, link.
+Reddit поймал Playwright бота на первой же попытке логина —
+anti-bot блокирует selenium/playwright user-agents. Перешли на
+CDP attach к настоящему Chrome — пост на r/playmygame прошёл, но
+**через 5 минут попал в spam filter** (новый аккаунт + low karma +
+external link = autoflag).
+
+Урок: anti-spam Reddit невозможно обмануть техникой если у тебя
+нет karma. Нужно либо вручную постить с реального аккаунта с
+историей, либо ждать пока модератор approve'нет. Решили ждать
+24 часа вместо продолжения бот-кампании на остальные 3 саба.
+
+### День 16 — High-contrast 10-player palette
+
+Старая палитра имела 5 пар похожих оттенков (Crimson≈Magenta, Amber≈
+Sunflower, Azure≈Sky, Mint≈Teal, Crimson≈Tangerine). При 10-player
+матчах половина игроков получала почти одинаковый цвет. Заменили на
+чистую 36° HSL ротацию (`H = idx × 36°, S = 90%, L = 60%`). Любые
+два соседних — 36° hue distance, perceptually distinct.
+
+Shape остаётся secondary signal для color-blind игроков — даже если
+два цвета сливаются в каком-то типе CVD, уникальная форма (circle /
+triangle / diamond / ...) выручит.
+
+### День 17 — Mobile responsive PvP match
+
+Открыли игру на телефоне — катастрофа. Канвас рассчитан на 800px
+hardcoded, не помещается, double-tap zoom при попытке тапнуть deploy.
+Заменили на `useViewportSize` hook + адаптивный cellSize от
+`window.innerWidth/Height`. Top bar wrap'ится на узких экранах. На
+канвас добавили `touchAction: 'none'` + `userSelect: 'none'`.
+
+Для 60×60 grid: iPhone SE 360px → cellSize 5 → канвас 300px помещается.
+Desktop FHD по-прежнему cellSize 13 (никакой регрессии).
+
+**Это та фича которую надо было сделать с MatchScreen v1 на Дне 7,
+не на Дне 17.** "Сделаем mobile responsive потом" — это классическая
+ошибка. Потом всегда сложнее: уже разлеглась логика которая ничего
+не знает про размеры, чипы прибиты гвоздями к фиксированным позициям,
+fixed `padding: 32` повсюду. Пришлось аккуратно вытаскивать viewport
+hook и просчитывать chrome'ы. Не катастрофа, но потеря двух часов
+которая могла быть час.
+
+---
+
+### Этап 8 закрыт. Что построили за 17 дней
+
+- 5 микросервисов в `langton-arena-backend/` (только mvp-server
+  реально работает; остальные — заготовки для Этапа 9)
+- WS protocol с 14 message types, типизированный в `@langton/core`
+- Room lifecycle: lobby → starting → playing → ended (+ error)
+- Server-driven ticks с client-side prediction
+- Reconnect grace + resume token
+- Rate limiting + error budget
+- Graceful shutdown
+- VPS deploy на `wss://alshfu.com` (Aeza, Ubuntu, nginx, certbot, systemd)
+- Frontend MatchScreen с 6 phase'ами, mobile responsive
+- High-contrast 10-player palette
+- 359/359 тестов: 126 web + 131 core + 102 mvp-server
+- 0 TypeScript ошибок strict mode
+
+**По числам Этапа 8:**
+- 17 дней (из них 2 — побочные квесты Render→VPS и Reddit)
+- ~40 новых файлов в backend, ~15 новых в web
+- Bundle web вырос 132 → 164 КБ (за счёт MatchScreen + WSClient +
+  clientPrediction + protocol типов)
+- Server image 192 МБ Docker, RAM ~50 МБ idle, ~80 МБ под матчем
+- 0 production incidents за 5 дней live (но 0 пользователей пока)
+
+**По влиянию:**
+- Детерминизм Этапа 3 окупился **трижды**: replay PvP, ghost
+  reconciliation тестируется как pure functions, resume state
+  переигрывает с seed
+- Spec v8.1 от Web Claude сэкономил минимум 3 дня — мы не спорили
+  с протоколом в реалтайме, у нас был контракт
+- `@langton/core` workspace — лучшее архитектурное решение Этапа.
+  Один engine, один контракт, два потребителя
+- VPS > PaaS для MVP: предсказуемее, дешевле, не требует
+  доверять чужому биллингу
+
+### Уроки Этапа 8 для книги
+
+1. **Спецификация важнее кода.** 20-страничный spec v8.1 заменил
+   3 дня blackboard-обсуждений и переделок.
+
+2. **Реальный пользователь меняет приоритеты.** До Дня 14 мы думали
+   что rate limiting "потом". Один прогон Sandbox-симуляции в голове
+   ("что будет если я открою 100 вкладок?") поменял этот приоритет.
+
+3. **Mobile responsive — не nice-to-have для game UX.** В 2026
+   половина playtest'еров — на телефонах. Если ты не отдаёшь Tap-to-Deploy
+   первые 30 секунд — ты теряешь игрока.
+
+4. **In-memory state на single instance — это решение, не лень.**
+   Для MVP это лучший выбор: нет БД, нет миграций, нет N+1, нет
+   eventual consistency. Stage 9 будем переезжать на Redis для
+   multi-instance — но не раньше.
+
+5. **VPS > PaaS** для MVP. Render заявил free tier но требует card.
+   VPS требует ssh + nginx + certbot — навыки которые не уйдут.
+
+6. **Reddit anti-spam пройти автоматизацией нельзя.** Нужна репутация
+   аккаунта или человек. Никакая Chrome DevTools магия не обманет
+   sitewide filter.
+
+7. **"Сделаем mobile potом" = классическая ловушка.** Делай
+   responsive с первого MatchScreen v1, не на Дне 17.
+
+8. **Reconnect grace — must-have для production**, не Этап 9. Любая
+   игра без него ощущается хрупкой. Stage 8 Day 13 — самый ценный
+   день Этапа.
+
+### Чему Этап 8 научил что не было в Этапе 7
+
+- Как делать stateful WS server без БД (Map<roomCode, Room> +
+  per-connection state)
+- Как пробрасывать determinism через WebSocket (seed + inputs, не
+  states)
+- Как мириться с jitter в client-side prediction (ghost overlays
+  + matching по context, не по индексу)
+- Как настроить VPS под Node + nginx + certbot + systemd с нуля
+  за полдня
+- Как Reddit ловит ботов (user-agent, behavioral, и naked-eye
+  pattern detection)
+- Как **не нужно** делать mobile-respond — последним днём этапа
+
+---
+
 ## Примечание для будущего читателя
 
 *Этот DEVLOG ведётся как первичный материал для возможной будущей публикации — статьи или книги о том как делается PvP-игра на клеточном автомате с командой студентов-практикантов и переходом на open-source.*
