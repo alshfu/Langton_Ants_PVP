@@ -2088,9 +2088,62 @@ fixed `padding: 32` повсюду. Пришлось аккуратно выта
 hook и просчитывать chrome'ы. Не катастрофа, но потеря двух часов
 которая могла быть час.
 
+### День 18 — Procedural WebAudio FX
+
+После Дня 17 матч был visually playable на телефоне, но **молчал**.
+Открыл свою игру в браузере и понял что отсутствует акустический
+punctuation: countdown не отбивает секунды, тапы по канвасу — без
+отклика, конец матча — overlay появляется в тишине. Игра ощущается как
+анимированная превью, не как игра.
+
+Заменил `audio.ts` stub на реальную WebAudio реализацию. Шесть звуков
+синтезируются процедурно через oscillators + ADSR envelope — никаких
+.mp3/.wav, никакой network round-trip. Bundle вырос на 3 КБ:
+
+- `countdown_beep` — 660Hz sine, 100ms (3, 2, 1)
+- `countdown_go` — 880+1320Hz triangle двойной hit (GO!)
+- `deploy` — 1400+800Hz square click, 30ms
+- `victory` — C-E-G-C major arpeggio (523/659/784/1046)
+- `defeat` — E-C-A descending minor (659/523/440)
+- `tie` — 440Hz нейтральный A4
+
+Wave choice — это где нужна интуиция. Square для deploy потому что
+насыщен гармониками — звучит как digital click. Triangle для victory:
+чище square, но богаче sine — bright fanfare. Sine для defeat — soft,
+dampened.
+
+**Autoplay-policy** — Chrome/Safari блокируют создание AudioContext до
+user gesture. Решение: lazy ctx. `getCtx()` создаёт context только на
+первом `play()`. Если state `'suspended'` — fire-and-forget `c.resume()`.
+Первый sound может быть тихим, но после Ready click — все громкие.
+
+**Mute toggle** 🔊/🔇 в top bar, persistится в localStorage под
+`langton.audio.muted`. Default unmuted.
+
+Тесты — 10 новых. jsdom не имеет AudioContext, тестировали:
+1. Mute toggle + localStorage persistence
+2. `play()` не падает когда WebAudio недоступно (SSR-safe)
+3. WebAudio mock smoke — oscillator'ы реально создаются и `setMuted(true)`
+   их блокирует
+
+Всего 369/369: 136 web + 131 core + 102 mvp-server.
+
+**Урок дня.** Звук — это не cosmetic, это **feedback loop**. До Дня 18
+game feel ощущался слабым потому что между моим действием и системным
+ответом не было acoustic signal. После — deploy click ощущается как
+нажатие кнопки. Это та фича которую игроки не отметят явно ("звуки
+прикольные"), но которая поднимет engagement на 30-50%. Должна была
+быть в День 9 (real match) одновременно с server ticks, не в День 18.
+
+**Pattern emerging** (параллель с Днём 17): я склонен **первым делать
+движущиеся части**, polish оставлять на потом. Polish — не "после core",
+он часть core. Следующая фича с очевидным polish'ом (sound, mobile,
+animations, error recovery) делается **одновременно с механикой**, не
+отдельным днём через две недели. Это записываю в lessons этапа.
+
 ---
 
-### Этап 8 закрыт. Что построили за 17 дней
+### Этап 8 закрыт. Что построили за 18 дней
 
 - 5 микросервисов в `langton-arena-backend/` (только mvp-server
   реально работает; остальные — заготовки для Этапа 9)
@@ -2103,14 +2156,15 @@ hook и просчитывать chrome'ы. Не катастрофа, но по
 - VPS deploy на `wss://alshfu.com` (Aeza, Ubuntu, nginx, certbot, systemd)
 - Frontend MatchScreen с 6 phase'ами, mobile responsive
 - High-contrast 10-player palette
-- 359/359 тестов: 126 web + 131 core + 102 mvp-server
+- Procedural WebAudio FX (6 sounds) + mute toggle
+- 369/369 тестов: 136 web + 131 core + 102 mvp-server
 - 0 TypeScript ошибок strict mode
 
 **По числам Этапа 8:**
-- 17 дней (из них 2 — побочные квесты Render→VPS и Reddit)
-- ~40 новых файлов в backend, ~15 новых в web
-- Bundle web вырос 132 → 164 КБ (за счёт MatchScreen + WSClient +
-  clientPrediction + protocol типов)
+- 18 дней (из них 2 — побочные квесты Render→VPS и Reddit)
+- ~40 новых файлов в backend, ~16 новых в web
+- Bundle web вырос 132 → 167 КБ (за счёт MatchScreen + WSClient +
+  clientPrediction + protocol типов + WebAudio FX)
 - Server image 192 МБ Docker, RAM ~50 МБ idle, ~80 МБ под матчем
 - 0 production incidents за 5 дней live (но 0 пользователей пока)
 
