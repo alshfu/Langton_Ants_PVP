@@ -45,7 +45,11 @@ export type ClientMessage =
   | { type: 'leave_room' }
   | { type: 'set_ready';  ready: boolean }
   | { type: 'deploy';     x: number; y: number; tick: number }
-  | { type: 'ping';       t: number };
+  | { type: 'ping';       t: number }
+  /** Day 23: rematch request — после match_ended клиент шлёт это
+   *  чтобы выразить намерение сыграть ещё. Server ждёт оба намерения
+   *  (60s timeout), затем resetMatch() → room возвращается в lobby. */
+  | { type: 'request_rematch' };
 
 /** Discriminator-strings, удобно для switch routing. */
 export type ClientMessageType = ClientMessage['type'];
@@ -70,6 +74,15 @@ export type ServerMessage =
        *  в local storage без HTTP fetch (mvp-server WebSocket-only). */
       replay?: Replay }
   | { type: 'pong';           t: number; serverT: number }
+  /** Day 23: rematch status — broadcast когда любой игрок просит rematch.
+   *  Client показывает "Opponent wants rematch" или "Waiting for opponent". */
+  | { type: 'rematch_status'; bothAgreed: boolean;
+      /** clientId'ы тех кто уже согласился. Client сравнивает со своим
+       *  чтобы понять "я уже согласился" vs "оппонент уже согласился". */
+      agreedClientIds: string[] }
+  /** Day 23: server reset'нул match — комната снова в lobby, оба игрока
+   *  unready. Client сбрасывает phase в 'lobby' и matchResult/scoreboard. */
+  | { type: 'rematch_reset' }
   | { type: 'error';          code: string; message: string; locale: string;
       /** Day 10: контекст rejected действия — для client-side prediction
        *  reconciliation. Опционально, заполняется только когда есть смысл
@@ -129,6 +142,8 @@ export function isClientMessage(obj: unknown): obj is ClientMessage {
           && typeof m.tick === 'number';
     case 'ping':
       return typeof m.t === 'number';
+    case 'request_rematch':
+      return true;
     default:
       return false;
   }

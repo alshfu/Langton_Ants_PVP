@@ -32,6 +32,13 @@ export class Room {
    *  connections и status='lobby'. Если за `lobbyTimeoutMs` (default 10 мин)
    *  второй player не пришёл — ROOM_TIMEOUT + close room. */
   lobbyTimeoutHandle: NodeJS.Timeout | null = null;
+  /** Day 23: clientId'ы кто запросил rematch после match_ended. Когда
+   *  size == players.length и status='finished' — resetMatch() и broadcast
+   *  rematch_reset. Cleared при reset или timeout. */
+  rematchRequests: Set<string> = new Set();
+  /** Day 23: timeout handle для rematch. Если за 60s не пришло второе
+   *  request_rematch — очищаем set и шлём 'opt_out' notify. */
+  rematchTimeoutHandle: NodeJS.Timeout | null = null;
 
   constructor(code: string) {
     this.code = code;

@@ -130,6 +130,9 @@ export function MatchScreen() {
   const lastBeepSecRef = useRef<number>(-1);
   // Day 20: live scoreboard updated на каждый engine tick.
   const [scoreboard, setScoreboard] = useState<ScoreboardSummary | null>(null);
+  // Day 23: rematch state. iRequestedRematch = клик "Play Again"; opp = тоже.
+  const [iRequestedRematch, setIRequestedRematch] = useState(false);
+  const [opponentRequestedRematch, setOpponentRequestedRematch] = useState(false);
 
   const me = players.find((p) => p.clientId === clientId);
   const opponent = players.find((p) => p.clientId !== clientId);
@@ -310,6 +313,33 @@ export function MatchScreen() {
             setPvpReplay(msg.replay ?? null);
             setPhase('finished');
             setReconnectStatus('idle');
+            // Day 23: reset rematch state на новый матч/конец
+            setIRequestedRematch(false);
+            setOpponentRequestedRematch(false);
+            break;
+          case 'rematch_status': {
+            // Day 23: server broadcasts кто согласился.
+            const agreed = msg.agreedClientIds;
+            setIRequestedRematch(clientId != null && agreed.includes(clientId));
+            setOpponentRequestedRematch(
+              agreed.some((id) => id !== clientId),
+            );
+            break;
+          }
+          case 'rematch_reset':
+            // Day 23: server reset'нул room в lobby — clear match state и
+            // вернуться к Ready'ть-up flow. room_updated следом обновит players.
+            setMatchResult(null);
+            setReplayUrl(null);
+            setPvpReplay(null);
+            setScoreboard(null);
+            setIRequestedRematch(false);
+            setOpponentRequestedRematch(false);
+            setStepSignal(0);
+            currentTickRef.current = 0;
+            pendingDeploysByTickRef.current.clear();
+            setPendingGhosts([]);
+            setPhase('lobby');
             break;
           case 'error':
             // Day 10: deploy rejection → откатить matching ghost + toast.
@@ -623,10 +653,15 @@ export function MatchScreen() {
             replay={pvpReplay}
             onBack={goBack}
             onPlayAgain={() => {
-              // Day 11 MVP: новая матч = back в menu (без autorejoin).
-              // Day 13+ может добавить rejoin / rematch flow.
-              goBack();
+              // Day 23: rematch flow — шлём request_rematch вместо back.
+              // Server ждёт оба intent'а → rematch_reset → phase=lobby.
+              if (iRequestedRematch) return; // idempotent защита
+              setIRequestedRematch(true);
+              wsRef.current?.send({ type: 'request_rematch' });
+              fx.play('ui_click');
             }}
+            iRequestedRematch={iRequestedRematch}
+            opponentRequestedRematch={opponentRequestedRematch}
           />
         )}
         {phase === 'error' && (
@@ -1105,6 +1140,7 @@ function LiveScoreboard({
 
 function FinishedView({
   t, T, result, myPlayer, players, palette, replayUrl, replay, onBack, onPlayAgain,
+  iRequestedRematch, opponentRequestedRematch,
 }: SubViewBase & {
   result: MatchResult;
   myPlayer: PlayerInfo | undefined;
@@ -1114,6 +1150,8 @@ function FinishedView({
   replay: Replay | null;
   onBack: () => void;
   onPlayAgain: () => void;
+  iRequestedRematch: boolean;
+  opponentRequestedRematch: boolean;
 }) {
   // Day 12: replay save state — "Save" / "Saved!" / "Already saved".
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'duplicate' | 'evicted'>('idle');
@@ -1307,13 +1345,37 @@ function FinishedView({
         </div>
       )}
 
+      {/* Day 23: opponent rematch hint (показывается до того как сами кликнем) */}
+      {opponentRequestedRematch && !iRequestedRematch && (
+        <div data-testid="opponent-wants-rematch" style={{
+          padding: '8px 14px',
+          background: `${T.success}15`,
+          border: `1px solid ${T.success}66`,
+          borderRadius: T.radiusSm,
+          fontSize: 12, color: T.success,
+          fontFamily: 'JetBrains Mono, monospace',
+          textAlign: 'center',
+        }}>
+          🔁 {t('match.opponentWantsRematch', 'Opponent wants a rematch — click Play again to accept')}
+        </div>
+      )}
+
       {/* Actions */}
       <div style={{ display: 'flex', gap: 12, width: '100%', maxWidth: 360 }}>
         <Button variant="ghost" size="md" fullWidth onClick={onBack}>
           ← {t('match.backToMenu', 'Back to menu')}
         </Button>
-        <Button variant="primary" size="md" fullWidth onClick={onPlayAgain}>
-          {t('match.playAgain', 'Play again')} →
+        <Button
+          variant={iRequestedRematch ? 'ghost' : 'primary'}
+          size="md"
+          fullWidth
+          onClick={onPlayAgain}
+          disabled={iRequestedRematch}
+          data-testid="play-again-button"
+        >
+          {iRequestedRematch
+            ? `⏳ ${t('match.waitingRematch', 'Waiting for opponent...')}`
+            : `🔁 ${t('match.playAgain', 'Play again')}`}
         </Button>
       </div>
 

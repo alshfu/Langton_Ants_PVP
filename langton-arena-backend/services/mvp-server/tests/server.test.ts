@@ -729,3 +729,110 @@ describe('MvpServer · Day 15 edge cases', () => {
     await fastServer.stop();
   });
 });
+
+// ─── Day 23: rematch flow ───────────────────────────────────────────────────
+
+describe('MvpServer · Day 23 rematch', () => {
+  let server: MvpServer;
+  let url: string;
+
+  // Helper: дуплицирован из main describe (где он closure-captures `url`).
+  // Для Day 23 нужен отдельный server с fast tick (тоже как Day 4 time-win test).
+  const joinMsgLocal = (room: string, nick: string) =>
+    JSON.stringify({ type: 'join_room', roomCode: room, nickname: nick, locale: 'en' });
+  async function setupReadyPair23(roomCode = 'r') {
+    const a = await openClient(url);
+    const b = await openClient(url);
+    a.ws.send(joinMsgLocal(roomCode, 'Alice'));
+    b.ws.send(joinMsgLocal(roomCode, 'Bob'));
+    await a.inbox.waitFor((m) => m.type === 'room_updated' && (m as any).players.length === 2);
+    await b.inbox.waitFor((m) => m.type === 'room_updated' && (m as any).players.length === 2);
+    a.ws.send(JSON.stringify({ type: 'set_ready', ready: true }));
+    b.ws.send(JSON.stringify({ type: 'set_ready', ready: true }));
+    return { a, b };
+  }
+
+  beforeEach(async () => {
+    server = new MvpServer({
+      port: 0,
+      logger: () => { /* silent */ },
+      matchCountdownMs: 20,
+      matchTickIntervalMs: 2,  // 500 TPS — быстро добегаем до конца матча
+    });
+    const { port } = await server.start();
+    url = `ws://127.0.0.1:${port}`;
+  });
+
+  afterEach(async () => {
+    await server.stop();
+  });
+
+  it('оба request_rematch → rematch_reset + room_updated с ready=false', async () => {
+    const { a, b } = await setupReadyPair23('rematch1');
+    // Дожидаемся match_ended
+    await a.inbox.waitFor((m) => m.type === 'match_ended', 3000);
+    await b.inbox.waitFor((m) => m.type === 'match_ended', 3000);
+
+    // Оба шлют request_rematch
+    a.ws.send(JSON.stringify({ type: 'request_rematch' }));
+    // Первый запрос → rematch_status с bothAgreed=false
+    const status1 = await a.inbox.waitFor((m) => m.type === 'rematch_status', 500);
+    expect((status1 as any).bothAgreed).toBe(false);
+    expect((status1 as any).agreedClientIds.length).toBe(1);
+
+    b.ws.send(JSON.stringify({ type: 'request_rematch' }));
+    // Второй → bothAgreed=true + rematch_reset + room_updated
+    const status2 = await a.inbox.waitFor(
+      (m) => m.type === 'rematch_status' && (m as any).bothAgreed === true,
+      500,
+    );
+    expect((status2 as any).agreedClientIds.length).toBe(2);
+
+    const reset = await a.inbox.waitFor((m) => m.type === 'rematch_reset', 500);
+    expect(reset).toBeDefined();
+
+    const updated = await a.inbox.waitFor(
+      (m) => m.type === 'room_updated'
+          && (m as any).players.every((p: any) => p.ready === false),
+      500,
+    );
+    expect((updated as any).players.length).toBe(2);
+
+    a.ws.close(); b.ws.close();
+  });
+
+  it('request_rematch до match_ended → MATCH_NOT_ACTIVE error', async () => {
+    const a = await openClient(url);
+    a.ws.send(joinMsgLocal('r', 'A'));
+    await a.inbox.readN(2);
+    a.ws.send(JSON.stringify({ type: 'request_rematch' }));
+    const err = await a.inbox.waitFor((m) => m.type === 'error', 500);
+    expect((err as any).code).toBe('MATCH_NOT_ACTIVE');
+    a.ws.close();
+  });
+
+  it('после reset оба могут set_ready и начать новый матч', async () => {
+    const { a, b } = await setupReadyPair23('rematch2');
+    await a.inbox.waitFor((m) => m.type === 'match_ended', 3000);
+    await b.inbox.waitFor((m) => m.type === 'match_ended', 3000);
+
+    a.ws.send(JSON.stringify({ type: 'request_rematch' }));
+    b.ws.send(JSON.stringify({ type: 'request_rematch' }));
+    await a.inbox.waitFor((m) => m.type === 'rematch_reset', 500);
+
+    // Сброс прошёл — теперь оба ready=true и второй матч стартует
+    a.ws.send(JSON.stringify({ type: 'set_ready', ready: true }));
+    b.ws.send(JSON.stringify({ type: 'set_ready', ready: true }));
+    const starting = await a.inbox.waitFor((m) => m.type === 'match_starting', 1000);
+    expect((starting as any).matchId).toBeDefined();
+    a.ws.close(); b.ws.close();
+  });
+
+  it('request_rematch from non-room player → NOT_IN_ROOM', async () => {
+    const c = await openClient(url);
+    c.ws.send(JSON.stringify({ type: 'request_rematch' }));
+    const err = await c.inbox.waitFor((m) => m.type === 'error', 500);
+    expect((err as any).code).toBe('NOT_IN_ROOM');
+    c.ws.close();
+  });
+});

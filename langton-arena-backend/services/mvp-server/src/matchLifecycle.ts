@@ -115,6 +115,77 @@ export function endActiveMatch(room: Room, reason: string, winnerIndex: number |
   room.graceTimers.clear();
 }
 
+// ─── Day 23: Rematch flow ────────────────────────────────────────────────────
+
+/** Day 23: rematch timeout — если за это время не пришло второе intent. */
+const REMATCH_TIMEOUT_MS = 60_000;
+
+/**
+ * Day 23: записать намерение игрока на rematch. Если оба согласились —
+ * resetMatch'аем room в lobby. Иначе arm 60s timeout и broadcast status.
+ */
+export function requestRematch(room: Room, clientId: string): void {
+  if (room.status !== 'finished') return; // только после match_ended
+  // Игрок должен быть в комнате
+  if (!room.findPlayer(clientId)) return;
+  room.rematchRequests.add(clientId);
+
+  const liveCount = room.liveCount();
+  const agreed = Array.from(room.rematchRequests);
+
+  // Broadcast статус всем — UI оппонента покажет "X wants rematch"
+  room.broadcast({
+    type: 'rematch_status',
+    bothAgreed: agreed.length >= liveCount && liveCount >= 2,
+    agreedClientIds: agreed,
+  });
+
+  if (agreed.length >= liveCount && liveCount >= 2) {
+    // Оба согласились → reset
+    resetForRematch(room);
+  } else if (!room.rematchTimeoutHandle) {
+    // Arm timeout — если оппонент не согласится за 60s, очищаем
+    room.rematchTimeoutHandle = setTimeout(() => {
+      room.rematchRequests.clear();
+      room.rematchTimeoutHandle = null;
+      room.broadcast({
+        type: 'rematch_status',
+        bothAgreed: false,
+        agreedClientIds: [],
+      });
+    }, REMATCH_TIMEOUT_MS);
+  }
+}
+
+/**
+ * Day 23: reset room обратно в lobby для rematch. Очищает activeMatch,
+ * сбрасывает ready flag для всех игроков, broadcast rematch_reset +
+ * room_updated.
+ */
+export function resetForRematch(room: Room): void {
+  // Cleanup rematch state
+  if (room.rematchTimeoutHandle) {
+    clearTimeout(room.rematchTimeoutHandle);
+    room.rematchTimeoutHandle = null;
+  }
+  room.rematchRequests.clear();
+  // Match cleanup
+  if (room.activeMatch) {
+    room.activeMatch.stop();
+    room.activeMatch = null;
+  }
+  // Reset ready flags
+  for (const conn of room.players) {
+    conn.ready = false;
+  }
+  // Status back to lobby
+  room.status = 'lobby';
+  // Broadcast reset → клиенты сбросят phase='lobby' и matchResult
+  room.broadcast({ type: 'rematch_reset' });
+  // И обновлённый roster (всем ready=false)
+  room.broadcast({ type: 'room_updated', players: room.getPlayerInfos() });
+}
+
 // ─── private ─────────────────────────────────────────────────────────────────
 
 function finalizeMatchStart(

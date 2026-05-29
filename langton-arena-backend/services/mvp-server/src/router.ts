@@ -14,6 +14,7 @@ import {
   armLobbyTimeout,
   disarmLobbyTimeout,
   endActiveMatch,
+  requestRematch,
 } from './matchLifecycle.js';
 
 /**
@@ -84,6 +85,7 @@ function dispatch(conn: Connection, msg: ClientMessage, ctx: ServerContext): voi
     case 'set_ready':       return handleSetReady(conn, msg, ctx);
     case 'deploy':          return handleDeploy(conn, msg, ctx);
     case 'ping':            return handlePing(conn, msg);
+    case 'request_rematch': return handleRequestRematch(conn, ctx);
     default: {
       const _exhaustive: never = msg;
       void _exhaustive;
@@ -286,6 +288,28 @@ function handlePing(
     t: msg.t,
     serverT: Date.now(),
   });
+}
+
+/**
+ * Day 23: handle 'request_rematch'. Игрок должен быть в room, status
+ * должен быть 'finished'. Делегирует в matchLifecycle.requestRematch
+ * который сам управляет state machine + timeout.
+ */
+function handleRequestRematch(conn: Connection, ctx: ServerContext): void {
+  if (!conn.roomCode) {
+    sendErrorWithBudget(conn, ERROR_CODES.NOT_IN_ROOM);
+    return;
+  }
+  const room = ctx.rooms.get(conn.roomCode);
+  if (!room) {
+    sendErrorWithBudget(conn, ERROR_CODES.ROOM_NOT_FOUND);
+    return;
+  }
+  if (room.status !== 'finished') {
+    sendErrorWithBudget(conn, ERROR_CODES.MATCH_NOT_ACTIVE);
+    return;
+  }
+  requestRematch(room, conn.clientId);
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
