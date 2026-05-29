@@ -2261,9 +2261,88 @@ Pattern continues: в Day 17 я понял что mobile responsive должен
 loop для пользователя — visual / audio / textual, (в) работает на
 mobile. Без всех трёх — feature считается work in progress, не "done".
 
+### День 21 — Красивые звуковые эффекты
+
+День 18 поставил procedural WebAudio как stub — буквально по одному
+sine/triangle тону на каждый event. Работало (countdown beep'ался,
+deploy кликался), но звучало плоско. Digital console beep из 80-х.
+Сегодня — полноценный звуковой дизайн.
+
+**Bus topology.** Master gain раздваивается: dry (92%) идёт прямо
+в destination, wet (18%) — через ConvolverNode с синтезированным
+impulse response в destination. IR не из .wav файла — генерируется
+при первом `getCtx()`: stereo буфер 1.4 секунды, exponentially
+decayed white noise, разные random seeds per channel для wideness.
+Получается mild room reverb (не cathedral, не bathroom).
+
+Каждый sound recipe выбирает свой dry/wet mix. `deploy` уходит в
+100% dry — клик должен быть тактильно immediate, без эха. `victory`
+и `tie` — в reverb на 60-100% для пространства. `countdown_go` —
+средний 60% reverb для cinematic feel.
+
+**Sound recipes** теперь это не один тон, а сборка из 2-16 слоёв:
+
+- **countdown_beep** — 660Hz sine + 1320Hz octave + 662Hz triangle
+  чуть detuned (chorus shimmer). 3 oscillator'а вместо одного.
+- **countdown_go** — sub-bass kick 120→50Hz sweep (boom feel) + mid
+  hit 440+880 triangle + high shimmer triad 1760+2640 + white-noise
+  burst через 2200Hz highpass filter (air/impact). Cinematic.
+- **deploy** — body sine с pitch sweep 800→300Hz + square transient
+  2200→1400Hz + короткий noise click. Dry only.
+- **victory** — 5-нотный ascending arpeggio C5-E5-G5-C6-E6, каждая
+  нота имеет triangle lead + sine sub octave (warmth) + triangle
+  octave up (sparkle, только верхние 3 ноты). После arpeggio —
+  sustain C major triad. 16 oscillators total.
+- **defeat** — 4-нотный descending Am arpeggio E5-C5-A4-F4 с pitch
+  drift вниз 97% (sigh feel) + final pad Am triad с tape-stop pitch
+  slide. Slow attacks на каждой ноте — sustain'ы вытягиваются.
+- **tie** — FM bell synthesis: carrier 440Hz модулируется 220Hz
+  oscillator'ом с index 200. Получаются inharmonic overtones как у
+  настоящего колокольчика. + 550Hz layer для richness, + 220Hz sub
+  для grounding.
+
+**Helpers новой палитры.** Старый код имел один `tone()` который
+делал линейную envelope. Сейчас 4 helper'а:
+- `envelope()` — ADSR с **exponential** curves (sounds more natural —
+  exp лучше моделирует звуковое затухание)
+- `osc()` — одиночный oscillator с optional pitch sweep + bus routing
+- `noiseBurst()` — white noise через highpass biquad для transients
+- `fmBell()` — frequency modulation (carrier + modulator) для bells
+
+**FM synthesis** — это тот трюк который превратил `tie` из
+скучного 440Hz beep в звон. Идея: один oscillator (modulator) идёт
+не на output, а в `carrier.frequency` через GainNode. Модулирующая
+частота добавляется к carrier частоте каждый sample. Получаются
+sidebands на `carrier ± n × mod` — это inharmonic. У реального
+колокола обертоны тоже inharmonic (поэтому он "звенит" а не гудит).
+ratio mod/carrier = 0.5 даёт metallic bell character.
+
+**Тесты** — mock factory расширена под full WebAudio API surface
+(convolver, buffer, bufferSource, biquadFilter). Smoke-тесты теперь
+проверяют не "2 oscillator'а" а "≥5 oscillator'ов + 1 noise burst"
+для countdown_go, "≥13" для victory. Это loose constraint потому что
+exact count может меняться при тонкой настройке, но архитектурное
+свойство "звук layered" остаётся.
+
+**Bundle** +2.5 KB raw / +0.9 KB gzip. Это весь Day 21 — три новых
+helper'а (noiseBurst, fmBell, envelope refactor) + 6 переписанных
+recipes. Reverb IR не stored, генерится лениво.
+
+**Урок дня.** Procedural sound design это область где "good enough"
+и "actually good" отделены **малым количеством кода**. Day 18 был
+60 строк рабочего synthesis'а. Day 21 — 300 строк. И разница в
+качестве — драматическая. Стоит ли инвестировать неделю в
+покупку/освоение audio middleware? Для MVP — нет. Для production —
+возможно. Но **между 0 звуков и приличным звуком — один день**,
+и эта дельта качества > чем дельта от приличного к продакшн.
+
+В следующих проектах буду делать procedural audio как первый день
+audio-блока, а не последний. Та же логика что mobile responsive
+с Day 17 — polish это часть core, не post-core.
+
 ---
 
-### Этап 8 закрыт. Что построили за 20 дней
+### Этап 8 закрыт. Что построили за 21 день
 
 - 5 микросервисов в `langton-arena-backend/` (только mvp-server
   реально работает; остальные — заготовки для Этапа 9)
@@ -2276,18 +2355,19 @@ mobile. Без всех трёх — feature считается work in progress
 - VPS deploy на `wss://alshfu.com` (Aeza, Ubuntu, nginx, certbot, systemd)
 - Frontend MatchScreen с 6 phase'ами, mobile responsive
 - High-contrast 10-player palette
-- Procedural WebAudio FX (6 sounds) + mute toggle
+- Procedural WebAudio FX → Day 21 переписан в layered synthesis
+  (FM bells, sub-bass kicks, noise transients, convolver reverb)
 - QR code в lobby + Web Share API
 - Live territory scoreboard
-- 399/399 тестов: 166 web + 131 core + 102 mvp-server
+- 402/402 тестов: 169 web + 131 core + 102 mvp-server
 - 0 TypeScript ошибок strict mode
 
 **По числам Этапа 8:**
-- 20 дней (из них 2 — побочные квесты Render→VPS и Reddit)
+- 21 день (из них 2 — побочные квесты Render→VPS и Reddit)
 - ~40 новых файлов в backend, ~20 новых в web
-- Bundle web вырос 132 → 191 КБ (за счёт MatchScreen + WSClient +
-  clientPrediction + protocol типов + WebAudio FX + QR encoder +
-  scoreboard)
+- Bundle web вырос 132 → 193 КБ (за счёт MatchScreen + WSClient +
+  clientPrediction + protocol типов + layered WebAudio FX + QR
+  encoder + scoreboard)
 - Server image 192 МБ Docker, RAM ~50 МБ idle, ~80 МБ под матчем
 - 0 production incidents за 5 дней live (но 0 пользователей пока)
 
