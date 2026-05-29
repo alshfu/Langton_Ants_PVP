@@ -8,6 +8,7 @@ import { routeMessage } from '../src/router';
 import { ERROR_CODES, type ServerMessage } from '../src/messages';
 import { RoomManager } from '../src/roomManager';
 import { makeContext, type ServerContext } from '../src/serverContext';
+import { SlidingWindowLimiter, RATE_LIMITS } from '@langton/core';
 
 /** Минимальный mock Connection — собирает sent messages в массив. */
 class MockConnection {
@@ -18,20 +19,29 @@ class MockConnection {
   roomCode: string | null = null;
   closed = false;
   sent: ServerMessage[] = [];
+  // Day 14: real limiter instances (тоже что real Connection) — тесты
+  // увидят корректный rate-limit behavior.
+  readonly messageLimit = new SlidingWindowLimiter(RATE_LIMITS.message);
+  readonly deployLimit = new SlidingWindowLimiter(RATE_LIMITS.deploy);
+  readonly errorBudget = new SlidingWindowLimiter(RATE_LIMITS.errorBudget);
 
   constructor(id = 'mock-client') { this.clientId = id; }
 
   send(msg: ServerMessage): void { this.sent.push(msg); }
-  sendError(code: string): void {
+  sendError(code: string, context?: { x?: number; y?: number; tick?: number }): void {
     this.sent.push({
       type: 'error',
       code,
       message: `error: ${code}`,
       locale: this.locale,
+      ...(context ? { context } : {}),
     });
   }
   setLocale(loc: string): void { this.locale = loc; }
   close(): void { this.closed = true; }
+  recordError(now: number = Date.now()): boolean {
+    return !this.errorBudget.tryHit(now);
+  }
 }
 
 describe('router.routeMessage', () => {
@@ -215,5 +225,80 @@ describe('router.routeMessage', () => {
     conn.sent = [];
     routeMessage(conn as any, JSON.stringify({ type: 'deploy', x: 5, y: 5, tick: 1 }), ctx);
     expect((conn.sent[0] as any).code).toBe(ERROR_CODES.MATCH_NOT_ACTIVE);
+  });
+});
+
+// ─── Day 14 — rate limiting + error budget ──────────────────────────────────
+
+describe('Day 14: rate limits', () => {
+  let conn: MockConnection;
+  let ctx: ServerContext;
+
+  beforeEach(() => {
+    conn = new MockConnection();
+    ctx = makeContext({ rooms: new RoomManager(), matchCountdownMs: 100_000, matchTickIntervalMs: 100_000 });
+  });
+
+  it('messageLimit (30/sec) → 31-е сообщение блокируется', () => {
+    // Заполняем bucket — 30 valid ping'ов
+    for (let i = 0; i < 30; i++) {
+      routeMessage(conn as any, JSON.stringify({ type: 'ping', t: i }), ctx);
+    }
+    // 31-е → RATE_LIMIT_EXCEEDED
+    conn.sent = [];
+    routeMessage(conn as any, JSON.stringify({ type: 'ping', t: 31 }), ctx);
+    expect(conn.sent).toHaveLength(1);
+    expect((conn.sent[0] as any).code).toBe(ERROR_CODES.RATE_LIMIT_EXCEEDED);
+  });
+
+  it('RATE_LIMIT_EXCEEDED НЕ увеличивает errorBudget (no disconnect loop)', () => {
+    // 30 ping'ов → bucket full
+    for (let i = 0; i < 30; i++) {
+      routeMessage(conn as any, JSON.stringify({ type: 'ping', t: i }), ctx);
+    }
+    // 100 заблокированных messages — все должны вернуть RATE_LIMIT_EXCEEDED
+    // без disconnect (т.к. RATE_LIMIT_EXCEEDED не увеличивает errorBudget).
+    for (let i = 0; i < 100; i++) {
+      routeMessage(conn as any, JSON.stringify({ type: 'ping', t: i + 100 }), ctx);
+    }
+    expect(conn.closed).toBe(false);
+  });
+
+  it('6 malformed messages подряд → disconnect (errorBudget exceeded)', () => {
+    // errorBudget = 5/10s. Первые 5 — fit в окно, 6-я переполняет.
+    for (let i = 0; i < 5; i++) {
+      routeMessage(conn as any, 'not-json', ctx);
+      expect(conn.closed).toBe(false);
+    }
+    routeMessage(conn as any, 'not-json', ctx);
+    expect(conn.closed).toBe(true);
+  });
+
+  it('5 malformed + 1 ping → НЕ disconnect (budget не превышен)', () => {
+    for (let i = 0; i < 5; i++) {
+      routeMessage(conn as any, 'not-json', ctx);
+    }
+    routeMessage(conn as any, JSON.stringify({ type: 'ping', t: 1 }), ctx);
+    expect(conn.closed).toBe(false);
+  });
+
+  it('deployLimit (5/sec) — 6-й deploy блокируется', () => {
+    // Setup: join, ready, fake active match — нам не важно проходит ли
+    // deploy валидацию, важно что 6-й сразу RATE_LIMIT_EXCEEDED.
+    routeMessage(conn as any, JSON.stringify({
+      type: 'join_room', roomCode: 'r', nickname: 'A', locale: 'en',
+    }), ctx);
+    conn.sent = [];
+    // 5 deploys — будут отвечать MATCH_NOT_ACTIVE (т.к. lobby), но не блок.
+    for (let i = 0; i < 5; i++) {
+      routeMessage(conn as any, JSON.stringify({ type: 'deploy', x: i, y: i, tick: 0 }), ctx);
+    }
+    // Проверим что 5-й ответ — не RATE_LIMIT
+    expect((conn.sent[4] as any).code).toBe(ERROR_CODES.MATCH_NOT_ACTIVE);
+    // 6-й → RATE_LIMIT_EXCEEDED
+    routeMessage(conn as any, JSON.stringify({ type: 'deploy', x: 99, y: 99, tick: 0 }), ctx);
+    expect((conn.sent[5] as any).code).toBe(ERROR_CODES.RATE_LIMIT_EXCEEDED);
+    // context должен содержать координаты для client rollback
+    expect((conn.sent[5] as any).context).toEqual({ x: 99, y: 99, tick: 0 });
   });
 });

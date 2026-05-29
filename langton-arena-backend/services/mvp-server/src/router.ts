@@ -17,27 +17,62 @@ import {
 /**
  * Парсит raw buffer/string как JSON, валидирует shape, передаёт в handler.
  * Любая ошибка → conn.sendError(...) и return (не throw).
+ *
+ * Day 14: rate limiting + error budget enforcement.
+ *   1. Любое incoming сообщение проходит через messageLimit (30/sec).
+ *   2. Sendошибки (sendErrorWithBudget) учитываются в errorBudget. Если
+ *      ≥5 errors за 10s → disconnect (broken client / DOS).
+ *   3. RATE_LIMIT_EXCEEDED самим собой не bumps errorBudget (избежать
+ *      feedback loop).
  */
 export function routeMessage(conn: Connection, raw: Buffer | string, ctx: ServerContext): void {
+  const now = Date.now();
+
+  // Day 14: общий message rate gate. Превышение → silent drop + 1 error.
+  if (!conn.messageLimit.tryHit(now)) {
+    sendErrorWithBudget(conn, ERROR_CODES.RATE_LIMIT_EXCEEDED, undefined, /*countAsError*/ false);
+    return;
+  }
+
   let parsed: unknown;
   try {
     const text = typeof raw === 'string' ? raw : raw.toString('utf8');
     parsed = JSON.parse(text);
   } catch {
-    conn.sendError(ERROR_CODES.MALFORMED_MESSAGE);
+    sendErrorWithBudget(conn, ERROR_CODES.MALFORMED_MESSAGE);
     return;
   }
 
   if (!isClientMessage(parsed)) {
     if (parsed && typeof parsed === 'object' && 'type' in parsed) {
-      conn.sendError(ERROR_CODES.UNKNOWN_MESSAGE_TYPE);
+      sendErrorWithBudget(conn, ERROR_CODES.UNKNOWN_MESSAGE_TYPE);
     } else {
-      conn.sendError(ERROR_CODES.MALFORMED_MESSAGE);
+      sendErrorWithBudget(conn, ERROR_CODES.MALFORMED_MESSAGE);
     }
     return;
   }
 
   dispatch(conn, parsed, ctx);
+}
+
+/**
+ * Day 14: send error + учесть в budget. Если bucket переполнен — closes
+ * connection. Используется вместо conn.sendError для всех client-induced
+ * ошибок чтобы броненую защиту получить автоматом.
+ *
+ * countAsError=false для RATE_LIMIT_EXCEEDED — иначе rate-limited клиент
+ * disconnects через 1 секунду гарантированно.
+ */
+function sendErrorWithBudget(
+  conn: Connection,
+  code: string,
+  context?: { x?: number; y?: number; tick?: number },
+  countAsError: boolean = true,
+): void {
+  conn.sendError(code as Parameters<typeof conn.sendError>[0], context);
+  if (countAsError && conn.recordError()) {
+    conn.close('error-budget-exceeded');
+  }
 }
 
 function dispatch(conn: Connection, msg: ClientMessage, ctx: ServerContext): void {
@@ -50,7 +85,7 @@ function dispatch(conn: Connection, msg: ClientMessage, ctx: ServerContext): voi
     default: {
       const _exhaustive: never = msg;
       void _exhaustive;
-      conn.sendError(ERROR_CODES.UNKNOWN_MESSAGE_TYPE);
+      sendErrorWithBudget(conn, ERROR_CODES.UNKNOWN_MESSAGE_TYPE);
     }
   }
 }
@@ -63,11 +98,11 @@ function handleJoinRoom(
   ctx: ServerContext,
 ): void {
   if (!isValidNickname(msg.nickname)) {
-    conn.sendError(ERROR_CODES.MALFORMED_MESSAGE);
+    sendErrorWithBudget(conn, ERROR_CODES.MALFORMED_MESSAGE);
     return;
   }
   if (msg.roomCode.length === 0 || msg.roomCode.length > 64) {
-    conn.sendError(ERROR_CODES.MALFORMED_MESSAGE);
+    sendErrorWithBudget(conn, ERROR_CODES.MALFORMED_MESSAGE);
     return;
   }
 
@@ -127,7 +162,7 @@ function handleJoinRoom(
 
   const added = room.addPlayer(conn);
   if (!added) {
-    conn.sendError(ERROR_CODES.ROOM_FULL);
+    sendErrorWithBudget(conn, ERROR_CODES.ROOM_FULL);
     return;
   }
 
@@ -154,12 +189,12 @@ function handleSetReady(
   ctx: ServerContext,
 ): void {
   if (!conn.roomCode) {
-    conn.sendError(ERROR_CODES.NOT_IN_ROOM);
+    sendErrorWithBudget(conn, ERROR_CODES.NOT_IN_ROOM);
     return;
   }
   const room = ctx.rooms.get(conn.roomCode);
   if (!room) {
-    conn.sendError(ERROR_CODES.ROOM_NOT_FOUND);
+    sendErrorWithBudget(conn, ERROR_CODES.ROOM_NOT_FOUND);
     return;
   }
 
@@ -186,23 +221,35 @@ function handleDeploy(
   msg: Extract<ClientMessage, { type: 'deploy' }>,
   ctx: ServerContext,
 ): void {
+  // Day 14: deploy bucket (5/sec). Превышение → RATE_LIMIT_EXCEEDED + context
+  // для client rollback ghost'a.
+  if (!conn.deployLimit.tryHit(Date.now())) {
+    sendErrorWithBudget(
+      conn,
+      ERROR_CODES.RATE_LIMIT_EXCEEDED,
+      { x: msg.x, y: msg.y, tick: msg.tick },
+      /*countAsError*/ false,
+    );
+    return;
+  }
+
   if (!conn.roomCode) {
-    conn.sendError(ERROR_CODES.NOT_IN_ROOM);
+    sendErrorWithBudget(conn, ERROR_CODES.NOT_IN_ROOM);
     return;
   }
   const room = ctx.rooms.get(conn.roomCode);
   if (!room) {
-    conn.sendError(ERROR_CODES.NOT_IN_ROOM);
+    sendErrorWithBudget(conn, ERROR_CODES.NOT_IN_ROOM);
     return;
   }
   if (!room.activeMatch || room.status !== 'playing') {
-    conn.sendError(ERROR_CODES.MATCH_NOT_ACTIVE);
+    sendErrorWithBudget(conn, ERROR_CODES.MATCH_NOT_ACTIVE);
     return;
   }
   // Найти индекс игрока в config.players по позиции в room
   const playerIdx = room.players.indexOf(conn);
   if (playerIdx < 0) {
-    conn.sendError(ERROR_CODES.NOT_IN_ROOM);
+    sendErrorWithBudget(conn, ERROR_CODES.NOT_IN_ROOM);
     return;
   }
 
@@ -211,9 +258,9 @@ function handleDeploy(
     // Day 10: context = координаты rejected deploy, для client prediction rollback.
     const ctx2 = { x: msg.x, y: msg.y, tick: msg.tick };
     if (v.reason === 'Input too old') {
-      conn.sendError(ERROR_CODES.INPUT_TOO_OLD, ctx2);
+      sendErrorWithBudget(conn, ERROR_CODES.INPUT_TOO_OLD, ctx2);
     } else {
-      conn.sendError(ERROR_CODES.INVALID_DEPLOY, ctx2);
+      sendErrorWithBudget(conn, ERROR_CODES.INVALID_DEPLOY, ctx2);
     }
   }
   // На успех — нет ack. Клиент увидит deploy в next match_tick.

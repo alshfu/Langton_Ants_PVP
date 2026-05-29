@@ -8,6 +8,7 @@ import type { WebSocket } from 'ws';
 import { randomUUID, randomBytes } from 'node:crypto';
 import type { ServerMessage, ErrorCode } from './messages.js';
 import { t, normalizeLocale, type Locale, DEFAULT_LOCALE } from './i18n.js';
+import { SlidingWindowLimiter, RATE_LIMITS } from '@langton/core';
 
 export class Connection {
   /** Уникальный идентификатор клиента (per WS connection). */
@@ -31,6 +32,13 @@ export class Connection {
   /** Day 13: помечен ли connection как disconnected (grace period active).
    *  Остаётся в room.players до grace expire / resume. */
   disconnected: boolean;
+  /** Day 14: per-connection rate limits.
+   *  - messageLimit: общий поток входящих (30/sec) — защита от flood
+   *  - deployLimit:  только deploy action'ы (5/sec) — защита от click bot
+   *  - errorBudget:  ≥5 errors за 10s → disconnect (broken client / DOS) */
+  readonly messageLimit: SlidingWindowLimiter;
+  readonly deployLimit: SlidingWindowLimiter;
+  readonly errorBudget: SlidingWindowLimiter;
 
   constructor(public readonly ws: WebSocket) {
     this.clientId = randomUUID();
@@ -42,6 +50,9 @@ export class Connection {
     this.closed = false;
     this.resumeToken = randomBytes(16).toString('hex');
     this.disconnected = false;
+    this.messageLimit = new SlidingWindowLimiter(RATE_LIMITS.message);
+    this.deployLimit = new SlidingWindowLimiter(RATE_LIMITS.deploy);
+    this.errorBudget = new SlidingWindowLimiter(RATE_LIMITS.errorBudget);
   }
 
   /** Day 13: усыновить state от старого Connection при resume. Сохраняем
@@ -88,6 +99,18 @@ export class Connection {
       locale: this.locale,
       ...(context ? { context } : {}),
     });
+  }
+
+  /**
+   * Day 14: учесть error в budget. Возвращает true если budget исчерпан и
+   * caller должен disconnect connection.
+   *
+   * RATE_LIMIT_EXCEEDED НЕ должен попадать сюда — иначе rate-limited
+   * клиент сразу banится в feedback loop.
+   */
+  recordError(now: number = Date.now()): boolean {
+    const ok = this.errorBudget.tryHit(now);
+    return !ok; // true = превышен бюджет
   }
 
   /** Закрыть соединение. Idempotent. */

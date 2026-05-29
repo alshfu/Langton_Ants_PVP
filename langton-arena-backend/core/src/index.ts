@@ -110,6 +110,15 @@ export type {
   BuildReplayArgs,
 } from './lib/buildReplay';
 
+// === Rate limiting (Day 14) =================================================
+export {
+  SlidingWindowLimiter,
+  RATE_LIMITS,
+} from './lib/rateLimit';
+export type {
+  RateLimitConfig,
+} from './lib/rateLimit';
+
 // === Deploy validation (shared client + server) =============================
 export {
   canDeploy,

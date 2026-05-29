@@ -230,7 +230,13 @@ export function MatchScreen() {
             break;
           case 'error':
             // Day 10: deploy rejection → откатить matching ghost + toast.
-            if (msg.code === 'INVALID_DEPLOY' || msg.code === 'INPUT_TOO_OLD') {
+            // Day 14: RATE_LIMIT_EXCEEDED тоже rollback'ает ghost (context
+            // отправляется только для deploy rate-limit, не для msg-flood).
+            if (
+              msg.code === 'INVALID_DEPLOY' ||
+              msg.code === 'INPUT_TOO_OLD' ||
+              msg.code === 'RATE_LIMIT_EXCEEDED'
+            ) {
               let didRollback = false;
               setPendingGhosts((prev) => {
                 const { ghosts: next, removed } = rejectGhost(
