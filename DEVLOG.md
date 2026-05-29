@@ -2340,9 +2340,55 @@ recipes. Reverb IR не stored, генерится лениво.
 audio-блока, а не последний. Та же логика что mobile responsive
 с Day 17 — polish это часть core, не post-core.
 
+### День 22 — Звук в Sandbox
+
+Открыл sandbox, нажал Run — началась симуляция. Через 30 секунд
+сработала win condition, появился MatchBanner с "P1 wins". **Тишина.**
+
+Day 21 я полировал звуки в PvP MatchScreen. Sandbox остался на 0
+звуков. Один человек написал в IRC канале (точнее это был я сам в
+голове на следующее утро) — "почему deploy кликается в PvP, но в
+sandbox молча?" Inconsistency.
+
+Wire — несколько мест:
+
+- `onDeployClick` → `fx.play('deploy')`. Manual deploy теперь кликается
+  так же как PvP.
+- `onStep`, `switchToRun`, `TransportBar` Play/Pause → `fx.play('ui_click')`.
+- `useEffect(liveStats.match.finished)` → `victory` если winner,
+  `tie` если draw. В Sandbox нет "своего" игрока, поэтому **любой
+  winner = victory** (cheerful). Это правильно потому что пользователь
+  смотрит на симуляцию **со стороны**, не идентифицируется с одним
+  игроком, и хочет fanfare когда что-то завершилось.
+
+Добавил новый sound — `ui_click`. Лайтер deploy: sine click 1200→600Hz
++ square transient 1800→1100Hz, no noise burst, dry only. Mid-frequencies
+специально выбраны:
+- 1200Hz не конкурирует с deploy (1400Hz) — чтобы slышно было что
+  это разные звуки, не один и тот же двинутый
+- Не 3000+Hz чтоб не быть аналогом OS click и не "ломать" иллюзию
+  in-game
+
+Mute toggle 🔊/🔇 в top bar Sandbox'а. Синхронизирован с MatchScreen
+через тот же `fx.isMuted()` state в localStorage. Mute в одном
+экране → mute в другом. Единая настройка для всего приложения, **не
+per-screen**. Per-screen mute это анти-паттерн: пользователь
+переключает раз и ждёт что оно везде.
+
+**Урок дня.** Не повторил pattern из Day 17/18/20. Audio был частью
+core Sandbox'а тоже — добавление "потом" заняло несколько часов
+размышлений "куда положить wire". Каждая фича где есть user-action
++ system-response должна иметь acoustic feedback. Это вход в feedback
+loop, не cosmetic. Записываю в lessons: **audio per user-action**
+а не "main events only".
+
+Bundle +1 KB raw / +0.3 gzip. Третий день подряд audio добавления
+почти не стоят размером. Этот pattern (procedural synthesis vs
+asset files) себя оправдал на 100%.
+
 ---
 
-### Этап 8 закрыт. Что построили за 21 день
+### Этап 8 закрыт. Что построили за 22 дня
 
 - 5 микросервисов в `langton-arena-backend/` (только mvp-server
   реально работает; остальные — заготовки для Этапа 9)
@@ -2357,17 +2403,18 @@ audio-блока, а не последний. Та же логика что mobi
 - High-contrast 10-player palette
 - Procedural WebAudio FX → Day 21 переписан в layered synthesis
   (FM bells, sub-bass kicks, noise transients, convolver reverb)
+- Day 22 wire'нут в Sandbox + новый ui_click sound
 - QR code в lobby + Web Share API
 - Live territory scoreboard
-- 402/402 тестов: 169 web + 131 core + 102 mvp-server
+- 403/403 тестов: 170 web + 131 core + 102 mvp-server
 - 0 TypeScript ошибок strict mode
 
 **По числам Этапа 8:**
-- 21 день (из них 2 — побочные квесты Render→VPS и Reddit)
+- 22 дня (из них 2 — побочные квесты Render→VPS и Reddit)
 - ~40 новых файлов в backend, ~20 новых в web
-- Bundle web вырос 132 → 193 КБ (за счёт MatchScreen + WSClient +
+- Bundle web вырос 132 → 195 КБ (за счёт MatchScreen + WSClient +
   clientPrediction + protocol типов + layered WebAudio FX + QR
-  encoder + scoreboard)
+  encoder + scoreboard + sandbox audio wire)
 - Server image 192 МБ Docker, RAM ~50 МБ idle, ~80 МБ под матчем
 - 0 production incidents за 5 дней live (но 0 пользователей пока)
 
