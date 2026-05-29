@@ -2707,9 +2707,94 @@ state, не наоборот. Это значит можно добавить т
 (например volume indicator в UI который анимирует на change) и не
 трогать audio.ts. Open/closed principle.
 
+### День 27 — Match milestone stingers + banners
+
+Музыка из Day 25 continuous и adaptive. Но **не реактивна на
+specific events**. В Geometry Dash есть короткие stingers поверх
+музыки — когда коллектишь монетку или попадаешь на ramp. Эта
+**punctuation** того что только что произошло — критична для
+emotional engagement.
+
+В нашем PvP матче 4 момента которые требуют эмоционального ответа:
+
+1. **Я только что взял лидерство** (crossed 50%) — игроку нужно
+   почувствовать **рост** уверенности.
+2. **Я доминирую** (crossed 75%) — close to victory, нужен **triumph**.
+3. **Я в критическом положении** (dropped below 25%) — нужно
+   **alarm**, mobilize.
+4. **Lead change** — overtook opponent. Это comeback moment, должен
+   **transcend** обычный flow.
+
+Каждый получает свой stinger sound + visual floating banner.
+
+**Pure detector функция** `detectMilestones(prev, curr, myIdx)`.
+Threshold crossings, не удержание. firedMilestonesRef Set гарантирует
+один-shot за матч — даже если территория колеблется around 50%, fanfare
+не должен повторяться 20 раз.
+
+**Priority order** при simultaneous events. Это потому что один tick
+может trigger'нуть несколько — например я был на 48% behind, теперь
+52% ahead. И crossed_50_up, и lead_change. Показывать оба одновременно —
+overwhelming. Показываю один по priority:
+
+```
+lead_change > crossed_75_up > crossed_50_up > crossed_25_down
+```
+
+Comeback most emotional → max priority. Critical может ждать (player
+notices без помощи).
+
+**Visual banner — overshoot animation**:
+
+```
+0%   scale(0.5)  ← "spawn" from small
+40%  scale(1.15) ← overshoot — exaggerated emphasis
+70%  scale(0.96) ← settle bounce
+100% scale(1.0)
+```
+
+Это **classic Disney bouncing animation principle**. Линейная
+ease-out animation скучна. Overshoot + settle гораздо attention-grabbing,
+особенно для quick (2.5s) banner.
+
+**4 stinger recipes** — все используют existing helpers из Day 21
+(osc, noiseBurst). Не пришлось добавлять новой synthesis infrastructure.
+Это где Day 21 investment окупается: добавление 4 sound recipes — это
+40 строк callable code, не 400.
+
+```ts
+stinger_lead:        C-E-G-B-D arpeggio + sparkle (5kHz noise)
+stinger_dominance:   sustained C triad + octave-up triad delayed + brushed cymbal
+stinger_critical:    sub-bass kick 80→50Hz + sawtooth Am + Bb tritone + low rumble
+stinger_comeback:    sine bass hit + Am-C ascending arp + sparkle
+```
+
+Bundle +4 KB raw / +1.2 gzip. Стандартный day-of-audio rate. Audio
+дешёво **до тех пор пока не таскаешь ассеты**.
+
+**Урок дня.** Layered emotional design. Music даёт **background flow**,
+SFX дают **action feedback** (deploy click), stingers дают **event
+punctuation**. Это три разных layer'а audio design:
+
+| Layer | Purpose | Timing |
+|---|---|---|
+| Music | Continuous emotional arc | Always playing in scene |
+| SFX | Tactile feedback for actions | At action moment |
+| Stinger | Punctuating key events | At emotional threshold |
+
+В моих предыдущих small projects я обычно делал только SFX. Music и
+stingers были "advanced audio" в моём mental model. Теперь понимаю
+что они simply разные functions, не разные complexity tiers. И добавить
+их incrementally — день за днём — не такое уж big deal.
+
+Lesson for next project: если нужен audio design — **plan all 3 layers
+с самого начала**. Не "MVP только SFX, потом музыка". Начинать с music
++ key SFX + 2-3 milestone stingers. Это **complete** emotional toolkit
+для большинства casual games.
+
 ---
 
-### Этап 8 закрыт. Что построили за 26 дней
+### Этап 8 закрыт. Что построили за 27 дней
 
 - 5 микросервисов в `langton-arena-backend/` (только mvp-server
   реально работает; остальные — заготовки для Этапа 9)
@@ -2733,16 +2818,18 @@ state, не наоборот. Это значит можно добавить т
   intensity-controlled drum + lead layers, теперь играет в lobby/
   countdown/playing с разными intensity)
 - Per-channel volume controls (master/music/sfx) + VolumePanel UI
-- 448/448 тестов: 211 web + 131 core + 106 mvp-server
+- Match milestone stingers (50/75/25 thresholds + lead change) +
+  visual banners с overshoot animation
+- 463/463 тестов: 226 web + 131 core + 106 mvp-server
 - 0 TypeScript ошибок strict mode
 
 **По числам Этапа 8:**
-- 26 дней (из них 2 — побочные квесты Render→VPS и Reddit)
-- ~40 новых файлов в backend, ~25 новых в web
-- Bundle web вырос 132 → 210 КБ (за счёт MatchScreen + WSClient +
+- 27 дней (из них 2 — побочные квесты Render→VPS и Reddit)
+- ~40 новых файлов в backend, ~27 новых в web
+- Bundle web вырос 132 → 214 КБ (за счёт MatchScreen + WSClient +
   clientPrediction + protocol типов + layered WebAudio FX + QR
   encoder + scoreboard + sandbox audio wire + rematch UI +
-  onboarding hints + music sequencer + volume panel)
+  onboarding hints + music sequencer + volume panel + milestones)
 - Server image 192 МБ Docker, RAM ~50 МБ idle, ~80 МБ под матчем
 - 0 production incidents за 5 дней live (но 0 пользователей пока)
 
