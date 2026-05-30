@@ -57,7 +57,14 @@ export type ClientMessage =
   /** Stage 9.1: host задаёт config для матча (только host имеет права).
    *  Partial — server merge'ит с defaultMatchConfig. Server validate'ит
    *  ranges + broadcasts 'room_config_updated' всем в room. */
-  | { type: 'set_room_config'; config: PartialMatchConfig };
+  | { type: 'set_room_config'; config: PartialMatchConfig }
+  /** Stage 9.3: enter matchmaking queue. Server matches с similar-rated
+   *  player через expanding window algorithm. */
+  | { type: 'find_match'; nickname: string; deviceId?: string }
+  /** Stage 9.3: leave queue без match. */
+  | { type: 'cancel_matchmaking' }
+  /** Stage 9.3: accept bot fallback после long wait. */
+  | { type: 'accept_bot_fallback'; difficulty: 'easy' | 'normal' | 'hard' };
 
 /** Stage 9.1: подмножество SandboxConfig которое host может override.
  *  Server валидирует ranges (e.g. width 20..120) и rejects out-of-bounds. */
@@ -106,6 +113,13 @@ export type ServerMessage =
    *  room update'ят preview. config — полный merged SandboxConfig после
    *  validation. hostClientId — для UI "Only host can change". */
   | { type: 'room_config_updated'; config: SandboxConfig; hostClientId: string }
+  /** Stage 9.3: periodic update в queue. waitSec = сколько ждёшь.
+   *  queueSize = всего игроков в queue. Optional botFallbackOffered если
+   *  >60s wait — client может accept_bot_fallback. */
+  | { type: 'matchmaking_status'; waitSec: number; queueSize: number;
+      botFallbackOffered?: boolean }
+  /** Stage 9.3: match создан. Client navigates на /?room=roomCode. */
+  | { type: 'match_found'; roomCode: string; opponentNickname: string }
   | { type: 'error';          code: string; message: string; locale: string;
       /** Day 10: контекст rejected действия — для client-side prediction
        *  reconciliation. Опционально, заполняется только когда есть смысл
@@ -172,6 +186,12 @@ export function isClientMessage(obj: unknown): obj is ClientMessage {
       return true;
     case 'set_room_config':
       return typeof m.config === 'object' && m.config !== null;
+    case 'find_match':
+      return typeof m.nickname === 'string';
+    case 'cancel_matchmaking':
+      return true;
+    case 'accept_bot_fallback':
+      return typeof m.difficulty === 'string';
     default:
       return false;
   }

@@ -96,11 +96,15 @@ export class MvpServer {
 
     const addr = this.httpServer.address() as AddressInfo;
     this.logger('info', 'mvp-server listening', { host: addr.address, port: addr.port });
+    // Stage 9.3: start matchmaker sweep
+    this.ctx.matchmaker.start();
     return { host: addr.address, port: addr.port };
   }
 
   async stop(): Promise<void> {
     if (!this.wss) return;
+    // Stage 9.3: stop matchmaker
+    this.ctx.matchmaker.stop();
     // Day 15: graceful shutdown — сначала уведомляем активные матчи через
     // match_ended (reason='server_shutdown'), чтобы клиенты показали
     // понятный banner вместо "connection lost".

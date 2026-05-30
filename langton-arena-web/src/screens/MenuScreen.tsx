@@ -112,13 +112,21 @@ export function MenuScreen() {
               'Deploy ants, capture territory, outmaneuver your opponent in 30 seconds.')}
           </div>
 
-          {/* Day 32: primary PvP actions — Play vs Bot + Play vs Friend */}
+          {/* Day 32 + Stage 9.3: primary PvP actions */}
           <div style={{
             display: 'flex', gap: 12, marginTop: 20, flexWrap: 'wrap',
             justifyContent: 'center',
           }}>
             <Button
               size="lg"
+              onClick={() => setScreen('matchmaking')}
+              data-testid="menu-find-match"
+            >
+              🌐 {t('menu.button.findMatch', 'Find match')}
+            </Button>
+            <Button
+              size="lg"
+              variant="ghost"
               onClick={() => setBotDialogOpen(true)}
               data-testid="menu-play-vs-bot"
             >

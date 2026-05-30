@@ -10,11 +10,14 @@
 
 import { RoomManager } from './roomManager.js';
 import { type PersistenceLayer, NoOpPersistence } from './persistence.js';
+import { Matchmaker } from './matchmaker.js';
 
 export interface ServerContext {
   rooms: RoomManager;
   /** Stage 9.2: persistence layer для match records + user stats. */
   persistence: PersistenceLayer;
+  /** Stage 9.3: matchmaker service. */
+  matchmaker: Matchmaker;
   /** Сколько ms перед match_started (после allReady). Default 3000. */
   matchCountdownMs: number;
   /** Tick interval engine'а внутри match. Default 100 (10 TPS). */
@@ -39,9 +42,13 @@ export function defaultMatchIdFn(): string {
 }
 
 export function makeContext(opts: Partial<ServerContext> = {}): ServerContext {
+  const rooms = opts.rooms ?? new RoomManager();
+  const persistence = opts.persistence ?? new NoOpPersistence();
+  const matchmaker = opts.matchmaker ?? new Matchmaker(rooms, persistence);
   return {
-    rooms: opts.rooms ?? new RoomManager(),
-    persistence: opts.persistence ?? new NoOpPersistence(),
+    rooms,
+    persistence,
+    matchmaker,
     matchCountdownMs: opts.matchCountdownMs ?? 3000,
     matchTickIntervalMs: opts.matchTickIntervalMs ?? 100,
     seedFn: opts.seedFn ?? defaultSeedFn,
