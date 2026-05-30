@@ -39,6 +39,7 @@ export function MatchmakingScreen() {
   const [botFallbackOffered, setBotFallbackOffered] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WSClient | null>(null);
+  const acceptedBotRef = useRef<'easy' | 'normal' | 'hard' | null>(null);
 
   useEffect(() => {
     const ws = new WSClient({
@@ -51,8 +52,9 @@ export function MatchmakingScreen() {
             if (msg.botFallbackOffered) setBotFallbackOffered(true);
             break;
           case 'match_found': {
-            // Navigate к match с received roomCode
-            const url = buildMatchUrl(msg.roomCode);
+            // Если accepted bot fallback — пробрасываем difficulty в URL
+            // так MatchScreen auto-spawn'ит бота как opponent.
+            const url = buildMatchUrl(msg.roomCode, acceptedBotRef.current ?? undefined);
             window.location.href = url;
             break;
           }
