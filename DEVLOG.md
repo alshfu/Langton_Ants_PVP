@@ -3632,6 +3632,37 @@ class JsonFilePersistence implements PersistenceLayer {
 **идентичные** интерфейсу с params (даже если `void`), иначе tsc strict
 mode валит сборку (`noUnusedParameters`). Префикс `_` спасает.
 
+### Stage 9.5 — Public replay browser (~3 дня)
+
+Sandbox → Replays tab теперь имеет section "Public replays" — игроки могут
+browse матчи других людей, click → playback в Sandbox.
+
+Что добавили:
+- **HTTP REST API** на mvp-server (поверх существующего `httpServer`):
+  - `GET /api/replays?limit&offset&kind&since&finishedOnly` — paginated list
+  - `GET /api/replays/:matchId` — full detail с config + replay payload
+  - OPTIONS preflight + CORS `Access-Control-Allow-Origin: *`
+  - 405 для non-GET, 404 для unknown id
+- **PersistenceLayer**: добавили `queryMatches(q: ReplayQuery)` и `getMatch(id)`
+  методы. JsonFilePersistence фильтрует по winCondition.kind через
+  JSON.parse(configJson), since, finishedOnly, sorts by startedAt desc.
+- **Client `lib/publicReplays.ts`**: REST client + smart base URL fallback —
+  если hostname заканчивается на `github.io`, default'ит на `https://alshfu.com`
+  (наш VPS с nginx → :8080 proxy).
+- **`ReplaysTab.tsx`**: `PublicReplaysSection` above local replays —
+  filter dropdown (territory/hold_majority/elimination/last_alive/all),
+  refresh button, pagination 20/page, click ▶ Play → fetchPublicReplay →
+  onPlay() → Sandbox playback.
+
+Tests: +9 (empty/list/paginate/filterKind/finishedOnly/detail/404/CORS/405).
+Total server 141/142. Web 301/301. Build clean. E2E prod 130/131 PASS
+(flaky cold-load timeout не связан).
+
+Из неочевидного: vitest пропускает тесты с `await fetch.json()` если type
+`unknown` — но `pnpm build` (tsc strict) валится с `'body' is of type
+'unknown'`. Спасает `as any` cast в test файлах. Production code keeps
+proper types — это test-only concession.
+
 ### Stage 9.4 — Spectator mode (~3 дня)
 
 Третий+ connection в room теперь watches без playing. URL pattern:
