@@ -1,0 +1,133 @@
+{
+  "id": "macro-canvas",
+  "name": "Macro Canvas · 800×800",
+  "category": "builtin",
+  "description": "Огромное поле 800×800 для макро-узоров. 4 муравья в центре с разными правилами — наблюдай как медленные структуры растекаются.",
+  "tags": [
+    "macro",
+    "huge",
+    "4p",
+    "showcase"
+  ],
+  "author": "langton-arena",
+  "config": {
+    "width": 800,
+    "height": 800,
+    "topology": "torus",
+    "bgColor": "#0A081A",
+    "showGrid": false,
+    "players": [
+      {
+        "id": "player_0",
+        "name": "Classic",
+        "color": "#FF5470",
+        "ruleId": "classic",
+        "startHp": 3,
+        "spawnPattern": "center",
+        "antCount": 1,
+        "ants": [
+          {
+            "id": "p0_a0",
+            "x": 400,
+            "y": 399,
+            "dir": 0,
+            "ruleOverride": null
+          }
+        ]
+      },
+      {
+        "id": "player_1",
+        "name": "Spiral",
+        "color": "#4DA8FF",
+        "ruleId": "spiral",
+        "startHp": 3,
+        "spawnPattern": "center",
+        "antCount": 1,
+        "ants": [
+          {
+            "id": "p1_a0",
+            "x": 401,
+            "y": 400,
+            "dir": 1,
+            "ruleOverride": null
+          }
+        ]
+      },
+      {
+        "id": "player_2",
+        "name": "Flower",
+        "color": "#39D98A",
+        "ruleId": "flower",
+        "startHp": 3,
+        "spawnPattern": "center",
+        "antCount": 1,
+        "ants": [
+          {
+            "id": "p2_a0",
+            "x": 400,
+            "y": 401,
+            "dir": 2,
+            "ruleOverride": null
+          }
+        ]
+      },
+      {
+        "id": "player_3",
+        "name": "Weave",
+        "color": "#FFD60A",
+        "ruleId": "weave",
+        "startHp": 3,
+        "spawnPattern": "center",
+        "antCount": 1,
+        "ants": [
+          {
+            "id": "p3_a0",
+            "x": 399,
+            "y": 400,
+            "dir": 3,
+            "ruleOverride": null
+          }
+        ]
+      }
+    ],
+    "hpEnabled": false,
+    "damageCapEnabled": true,
+    "collisionCooldownTicks": 5,
+    "birthEnabled": false,
+    "birthMinNeighbors": 3,
+    "birthCooldownTicks": 50,
+    "maxAntsPerPlayer": 30,
+    "unlimitedAnts": false,
+    "hybridChance": 0,
+    "wildBirthChance": 0,
+    "showGlow": false,
+    "showTrails": true,
+    "showHpDots": false,
+    "showDirectionArrows": false,
+    "showCellState": false,
+    "skinPack": "shape",
+    "heatmapMode": "off",
+    "heatmapOpacity": 0.55,
+    "antScale": 1.5,
+    "trailDecay": 0.99,
+    "baseTps": 60,
+    "speedMultiplier": 4,
+    "seed": 9001,
+    "mutation": {
+      "enabled": false,
+      "haloEnabled": false,
+      "haloMinNeighbors": 6,
+      "mirrorEnabled": false,
+      "mirrorRadius": 2,
+      "pathEnabled": false,
+      "pathStraightTicks": 10
+    },
+    "winCondition": {
+      "kind": "none",
+      "threshold": 5
+    },
+    "reserveMode": false,
+    "deployRule": "anywhere",
+    "deployRadius": 3
+  }
+}

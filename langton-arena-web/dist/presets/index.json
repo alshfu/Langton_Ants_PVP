@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "presets": [
+    {
+      "id": "two-player-faceoff",
+      "file": "two-player-faceoff.json"
+    },
+    {
+      "id": "four-corners",
+      "file": "four-corners.json"
+    },
+    {
+      "id": "chaos-eight",
+      "file": "chaos-eight.json"
+    },
+    {
+      "id": "birth-showcase",
+      "file": "birth-showcase.json"
+    },
+    {
+      "id": "wild-storm",
+      "file": "wild-storm.json"
+    },
+    {
+      "id": "lone-wolf",
+      "file": "lone-wolf.json"
+    },
+    {
+      "id": "halo-garden",
+      "file": "halo-garden.json"
+    },
+    {
+      "id": "mirror-twin",
+      "file": "mirror-twin.json"
+    },
+    {
+      "id": "snowflake",
+      "file": "snowflake.json"
+    },
+    {
+      "id": "path-marathon",
+      "file": "path-marathon.json"
+    },
+    {
+      "id": "quadrant-mandala",
+      "file": "quadrant-mandala.json"
+    },
+    {
+      "id": "chaos-vs-order",
+      "file": "chaos-vs-order.json"
+    },
+    {
+      "id": "defense-stand",
+      "file": "defense-stand.json"
+    },
+    {
+      "id": "surgical-strike",
+      "file": "surgical-strike.json"
+    },
+    {
+      "id": "mass-deploy",
+      "file": "mass-deploy.json"
+    },
+    {
+      "id": "sym-compass-out",
+      "file": "sym-compass-out.json"
+    },
+    {
+      "id": "sym-compass-in",
+      "file": "sym-compass-in.json"
+    },
+    {
+      "id": "sym-pinwheel-cw",
+      "file": "sym-pinwheel-cw.json"
+    },
+    {
+      "id": "sym-pinwheel-ccw",
+      "file": "sym-pinwheel-ccw.json"
+    },
+    {
+      "id": "sym-cross-arms",
+      "file": "sym-cross-arms.json"
+    },
+    {
+      "id": "sym-diagonal-x",
+      "file": "sym-diagonal-x.json"
+    },
+    {
+      "id": "sym-quadrants",
+      "file": "sym-quadrants.json"
+    },
+    {
+      "id": "sym-mirror-vert",
+      "file": "sym-mirror-vert.json"
+    },
+    {
+      "id": "sym-octagram",
+      "file": "sym-octagram.json"
+    },
+    {
+      "id": "sym-star-burst",
+      "file": "sym-star-burst.json"
+    },
+    {
+      "id": "macro-canvas",
+      "file": "macro-canvas.json"
+    }
+  ]
+}
