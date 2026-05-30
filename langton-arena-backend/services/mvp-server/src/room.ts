@@ -9,7 +9,7 @@
 //   'finished'  — match закончился (Day 4)
 
 import type { Connection } from './connection.js';
-import type { ServerMessage, PlayerInfo } from './messages.js';
+import type { ServerMessage, PlayerInfo, SpectatorInfo } from './messages.js';
 import type { Match } from './match.js';
 
 export type RoomStatus = 'lobby' | 'countdown' | 'playing' | 'finished';
@@ -45,6 +45,10 @@ export class Room {
   /** Stage 9.1: overrides over defaultMatchConfig — apply'ются при
    *  match start. Cleared после rematch_reset (host может set заново). */
   configOverrides: Record<string, unknown> = {};
+  /** Stage 9.4: spectator connections. Get все broadcasts (room_updated,
+   *  match_tick, etc) но не могут set_ready/deploy/rematch. Не count в
+   *  players.length / ROOM_MAX_PLAYERS check. */
+  spectators: Connection[] = [];
 
   constructor(code: string) {
     this.code = code;
@@ -93,11 +97,44 @@ export class Room {
     }));
   }
 
-  /** Отправить message ВСЕМ игрокам в room.
-   *  Day 13: пропускаем disconnected — у них ws закрыт, send no-op. */
+  /** Stage 9.4: snapshot зрителей для broadcast. */
+  getSpectatorInfos(): SpectatorInfo[] {
+    return this.spectators.map((conn) => ({
+      clientId: conn.clientId,
+      nickname: conn.nickname,
+      locale: conn.locale,
+    }));
+  }
+
+  /** Stage 9.4: добавить зрителя. Идемпотентно. */
+  addSpectator(conn: Connection): void {
+    if (this.spectators.includes(conn)) return;
+    this.spectators.push(conn);
+    conn.roomCode = this.code;
+  }
+
+  /** Stage 9.4: убрать зрителя. */
+  removeSpectator(conn: Connection): void {
+    const idx = this.spectators.indexOf(conn);
+    if (idx < 0) return;
+    this.spectators.splice(idx, 1);
+    if (conn.roomCode === this.code) conn.roomCode = null;
+  }
+
+  /** Stage 9.4: проверка — connection это spectator в этой room. */
+  isSpectator(conn: Connection): boolean {
+    return this.spectators.includes(conn);
+  }
+
+  /** Отправить message ВСЕМ игрокам И зрителям в room.
+   *  Day 13: пропускаем disconnected — у них ws закрыт, send no-op.
+   *  Stage 9.4: spectators получают full broadcast tap. */
   broadcast(msg: ServerMessage): void {
     for (const conn of this.players) {
       if (conn.disconnected) continue;
+      conn.send(msg);
+    }
+    for (const conn of this.spectators) {
       conn.send(msg);
     }
   }
@@ -110,7 +147,9 @@ export class Room {
   }
 
   /** Пуста ли комната — для cleanup в RoomManager.
-   *  Day 13: disconnected counted как occupied (resume может прийти). */
+   *  Day 13: disconnected counted как occupied (resume может прийти).
+   *  Stage 9.4: spectators alone не keep room alive — если все players ушли,
+   *  room удаляется даже если specs ещё подключены (specs disconnect автоматом). */
   isEmpty(): boolean {
     return this.players.length === 0;
   }

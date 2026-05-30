@@ -125,6 +125,39 @@ function handleJoinRoom(
 
   const room = ctx.rooms.getOrCreate(msg.roomCode);
 
+  // Stage 9.4: spectator path. Spectator не replaces player, не triggers
+  // resume, не affects host/ROOM_FULL. Просто tail subscribe ко broadcasts.
+  if (msg.spectator) {
+    room.addSpectator(conn);
+    if (msg.deviceId) conn.deviceId = msg.deviceId;
+    conn.send({
+      type: 'room_joined',
+      roomCode: room.code,
+      clientId: conn.clientId,
+      players: room.getPlayerInfos(),
+      resumeToken: conn.resumeToken,
+      asSpectator: true,
+      spectators: room.getSpectatorInfos(),
+    });
+    // Если матч активен — отправить полный state для catch-up.
+    if (room.activeMatch && !room.activeMatch.isFinished) {
+      conn.send({
+        type: 'match_resume_state',
+        matchId: room.activeMatch.matchId,
+        tick: room.activeMatch.currentTick,
+        config: room.activeMatch.config,
+        seed: room.activeMatch.seed,
+        deployTimeline: [...room.activeMatch.deployTimeline],
+      });
+    }
+    // Broadcast — players + другие spectators видят нового зрителя.
+    room.broadcast({
+      type: 'spectator_joined',
+      spectators: room.getSpectatorInfos(),
+    });
+    return;
+  }
+
   // Day 13: resume path. Если room имеет disconnected slot с matching token
   // → swap dead conn на нового, cancel grace timer, send resume state.
   if (msg.resumeToken) {
@@ -199,10 +232,12 @@ function handleJoinRoom(
     clientId: conn.clientId,
     players: room.getPlayerInfos(),
     resumeToken: conn.resumeToken,
+    spectators: room.getSpectatorInfos(),
   });
   room.broadcast({
     type: 'room_updated',
     players: room.getPlayerInfos(),
+    spectators: room.getSpectatorInfos(),
   });
   // Stage 9.1: send initial config snapshot к newly joined player.
   // Если host уже set overrides, joining player видит правильный config.
@@ -229,6 +264,11 @@ function handleSetReady(
   const room = ctx.rooms.get(conn.roomCode);
   if (!room) {
     sendErrorWithBudget(conn, ERROR_CODES.ROOM_NOT_FOUND);
+    return;
+  }
+  // Stage 9.4: spectator can't ready up
+  if (room.isSpectator(conn)) {
+    sendErrorWithBudget(conn, ERROR_CODES.SPECTATOR_CANT_PLAY);
     return;
   }
 
@@ -274,6 +314,12 @@ function handleDeploy(
   const room = ctx.rooms.get(conn.roomCode);
   if (!room) {
     sendErrorWithBudget(conn, ERROR_CODES.NOT_IN_ROOM);
+    return;
+  }
+  // Stage 9.4: spectator can't deploy
+  if (room.isSpectator(conn)) {
+    sendErrorWithBudget(conn, ERROR_CODES.SPECTATOR_CANT_PLAY,
+      { x: msg.x, y: msg.y, tick: msg.tick }, /*countAsError*/ false);
     return;
   }
   if (!room.activeMatch || room.status !== 'playing') {
@@ -324,6 +370,11 @@ function handleRequestRematch(conn: Connection, ctx: ServerContext): void {
   const room = ctx.rooms.get(conn.roomCode);
   if (!room) {
     sendErrorWithBudget(conn, ERROR_CODES.ROOM_NOT_FOUND);
+    return;
+  }
+  // Stage 9.4: spectator can't request rematch
+  if (room.isSpectator(conn)) {
+    sendErrorWithBudget(conn, ERROR_CODES.SPECTATOR_CANT_PLAY);
     return;
   }
   if (room.status !== 'finished') {
@@ -432,6 +483,21 @@ export function leaveCurrentRoom(conn: Connection, ctx: ServerContext): void {
     return;
   }
 
+  // Stage 9.4: spectator leave — drop from spectators, broadcast,
+  // не triggers opponent_disconnected / cleanup.
+  if (room.isSpectator(conn)) {
+    room.removeSpectator(conn);
+    room.broadcast({
+      type: 'spectator_left',
+      clientId: conn.clientId,
+      spectators: room.getSpectatorInfos(),
+    });
+    if (room.isEmpty() && room.spectators.length === 0) {
+      ctx.rooms.delete(room.code);
+    }
+    return;
+  }
+
   // Day 4: если был активный match — оппонент побеждает по disconnect
   if (room.activeMatch && !room.activeMatch.isFinished) {
     const leavingIdx = room.players.indexOf(conn);
@@ -454,6 +520,12 @@ export function leaveCurrentRoom(conn: Connection, ctx: ServerContext): void {
     room.activeMatch = null;
     // Day 15: empty room → cleanup lobby timer (room полностью исчезает)
     disarmLobbyTimeout(room);
+    // Stage 9.4: detach spectators — room dying, они получат spectator_left
+    // или client сам обрабатывает ws.close.
+    for (const sp of [...room.spectators]) {
+      sp.roomCode = null;
+    }
+    room.spectators.length = 0;
     ctx.rooms.delete(room.code);
   } else {
     // Day 15: <2 players → re-arm lobby timeout (если status=lobby).
@@ -462,6 +534,7 @@ export function leaveCurrentRoom(conn: Connection, ctx: ServerContext): void {
     room.broadcast({
       type: 'room_updated',
       players: room.getPlayerInfos(),
+      spectators: room.getSpectatorInfos(),
     });
   }
 }

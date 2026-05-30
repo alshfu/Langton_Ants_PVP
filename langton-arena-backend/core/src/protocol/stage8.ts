@@ -26,6 +26,14 @@ export interface PlayerInfo {
   disconnected?: boolean;
 }
 
+/** Stage 9.4: информация о зрителе. Только идентификация — UI игрока
+ *  показывает "👁 N watching". Spectator не имеет index / ready / disconnected. */
+export interface SpectatorInfo {
+  clientId: string;
+  nickname: string;
+  locale: string;
+}
+
 /** Атомарное действие deploy в match. */
 export interface DeployAction {
   tick: number;
@@ -45,7 +53,11 @@ export type ClientMessage =
       /** Stage 9.2: optional device-id для persistent anonymous identity.
        *  Client сохраняет в localStorage. Server upsert'ит user record
        *  и tracking'ает stats. Если отсутствует — guest без stats. */
-      deviceId?: string }
+      deviceId?: string;
+      /** Stage 9.4: если true — присоединиться как spectator (3rd+ connection).
+       *  Spectator получает все broadcasts но не может set_ready/deploy/rematch.
+       *  Не считается в room.players.length. */
+      spectator?: boolean }
   | { type: 'leave_room' }
   | { type: 'set_ready';  ready: boolean }
   | { type: 'deploy';     x: number; y: number; tick: number }
@@ -87,8 +99,19 @@ export type ServerMessage =
       /** Day 13: resume token — client персистит для будущего reconnect. */
       resumeToken: string;
       /** Day 13: true если client уже был в этой комнате и просто восстановился. */
-      resumed?: boolean }
-  | { type: 'room_updated';   players: PlayerInfo[] }
+      resumed?: boolean;
+      /** Stage 9.4: true если this connection — spectator. Client UI hide'ит
+       *  Ready/Deploy controls, показывает SPECTATOR badge. */
+      asSpectator?: boolean;
+      /** Stage 9.4: current spectator list (для UI индикатора). */
+      spectators?: SpectatorInfo[] }
+  | { type: 'room_updated';   players: PlayerInfo[];
+      /** Stage 9.4: список зрителей в room. Players UI показывает "👁 N watching". */
+      spectators?: SpectatorInfo[] }
+  /** Stage 9.4: новый зритель присоединился. Broadcast всем (players + specs). */
+  | { type: 'spectator_joined'; spectators: SpectatorInfo[] }
+  /** Stage 9.4: зритель ушёл. clientId — кто вышел. */
+  | { type: 'spectator_left';   clientId: string; spectators: SpectatorInfo[] }
   | { type: 'match_resume_state'; matchId: string; tick: number;
       config: SandboxConfig; seed: number;
       deployTimeline: DeployAction[] }
@@ -155,6 +178,8 @@ export const ERROR_CODES = {
   // Stage 9.1: config selection
   NOT_HOST:                'NOT_HOST',                // set_room_config от non-host
   INVALID_CONFIG:          'INVALID_CONFIG',          // partial config out of ranges
+  // Stage 9.4: spectator restrictions
+  SPECTATOR_CANT_PLAY:     'SPECTATOR_CANT_PLAY',     // deploy/set_ready/rematch от spectator
 } as const;
 
 export type ErrorCode = typeof ERROR_CODES[keyof typeof ERROR_CODES];

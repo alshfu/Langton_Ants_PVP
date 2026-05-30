@@ -10,6 +10,7 @@ export {
 
 export type {
   PlayerInfo,
+  SpectatorInfo,
   DeployAction,
   ClientMessage,
   ClientMessageType,

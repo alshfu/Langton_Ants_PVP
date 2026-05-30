@@ -37,6 +37,7 @@ export const MESSAGES: MessagesByLocale = {
     RESUME_TOKEN_EXPIRED:    'Reconnect window expired — match was forfeited',
     NOT_HOST:                'Only room host can change settings',
     INVALID_CONFIG:          'Invalid configuration value',
+    SPECTATOR_CANT_PLAY:     'Spectators cannot play in this match',
   },
   ru: {
     MALFORMED_MESSAGE:       'Некорректное сообщение — невалидный JSON или нет поля type',
@@ -54,6 +55,7 @@ export const MESSAGES: MessagesByLocale = {
     RESUME_TOKEN_EXPIRED:    'Окно для переподключения истекло — матч засчитан как поражение',
     NOT_HOST:                'Only room host can change settings',
     INVALID_CONFIG:          'Invalid configuration value',
+    SPECTATOR_CANT_PLAY:     'Зрители не могут играть в этом матче',
   },
   uk: {
     MALFORMED_MESSAGE:       'Некоректне повідомлення — невалідний JSON або немає поля type',
@@ -71,6 +73,7 @@ export const MESSAGES: MessagesByLocale = {
     RESUME_TOKEN_EXPIRED:    'Вікно для перепідключення вичерпано — матч зараховано як поразку',
     NOT_HOST:                'Only room host can change settings',
     INVALID_CONFIG:          'Invalid configuration value',
+    SPECTATOR_CANT_PLAY:     'Глядачі не можуть грати в цьому матчі',
   },
   de: {
     MALFORMED_MESSAGE:       'Fehlerhafte Nachricht — ungültiges JSON oder fehlendes type-Feld',
@@ -88,6 +91,7 @@ export const MESSAGES: MessagesByLocale = {
     RESUME_TOKEN_EXPIRED:    'Wiederverbindungs-Zeitfenster abgelaufen — Match verloren',
     NOT_HOST:                'Only room host can change settings',
     INVALID_CONFIG:          'Invalid configuration value',
+    SPECTATOR_CANT_PLAY:     'Zuschauer können in diesem Match nicht spielen',
   },
   es: {
     MALFORMED_MESSAGE:       'Mensaje mal formado — JSON inválido o falta campo type',
@@ -105,6 +109,7 @@ export const MESSAGES: MessagesByLocale = {
     RESUME_TOKEN_EXPIRED:    'Ventana de reconexión expirada — partida perdida',
     NOT_HOST:                'Only room host can change settings',
     INVALID_CONFIG:          'Invalid configuration value',
+    SPECTATOR_CANT_PLAY:     'Los espectadores no pueden jugar en esta partida',
   },
   fr: {
     MALFORMED_MESSAGE:       'Message malformé — JSON invalide ou champ type manquant',
@@ -122,6 +127,7 @@ export const MESSAGES: MessagesByLocale = {
     RESUME_TOKEN_EXPIRED:    'Fenêtre de reconnexion expirée — match perdu',
     NOT_HOST:                'Only room host can change settings',
     INVALID_CONFIG:          'Invalid configuration value',
+    SPECTATOR_CANT_PLAY:     'Les spectateurs ne peuvent pas jouer dans ce match',
   },
   zh: {
     MALFORMED_MESSAGE:       '消息格式错误 — JSON 无效或缺少 type 字段',
@@ -139,6 +145,7 @@ export const MESSAGES: MessagesByLocale = {
     RESUME_TOKEN_EXPIRED:    '重连窗口已过期 — 比赛已判负',
     NOT_HOST:                'Only room host can change settings',
     INVALID_CONFIG:          'Invalid configuration value',
+    SPECTATOR_CANT_PLAY:     '观众不能在此比赛中游玩',
   },
   ja: {
     MALFORMED_MESSAGE:       'メッセージ形式エラー — JSON が不正または type フィールドがありません',
@@ -156,6 +163,7 @@ export const MESSAGES: MessagesByLocale = {
     RESUME_TOKEN_EXPIRED:    '再接続ウィンドウが期限切れ — 試合が負け扱いに',
     NOT_HOST:                'Only room host can change settings',
     INVALID_CONFIG:          'Invalid configuration value',
+    SPECTATOR_CANT_PLAY:     '観戦者はこの試合でプレイできません',
   },
   ko: {
     MALFORMED_MESSAGE:       '메시지 형식 오류 — JSON이 잘못되었거나 type 필드가 없습니다',
@@ -173,6 +181,7 @@ export const MESSAGES: MessagesByLocale = {
     RESUME_TOKEN_EXPIRED:    '재연결 시간이 만료됨 — 경기 패배 처리',
     NOT_HOST:                'Only room host can change settings',
     INVALID_CONFIG:          'Invalid configuration value',
+    SPECTATOR_CANT_PLAY:     '관전자는 이 경기에서 플레이할 수 없습니다',
   },
   pt: {
     MALFORMED_MESSAGE:       'Mensagem malformada — JSON inválido ou campo type ausente',
@@ -190,6 +199,7 @@ export const MESSAGES: MessagesByLocale = {
     RESUME_TOKEN_EXPIRED:    'Janela de reconexão expirada — partida perdida',
     NOT_HOST:                'Only room host can change settings',
     INVALID_CONFIG:          'Invalid configuration value',
+    SPECTATOR_CANT_PLAY:     'Espectadores não podem jogar nesta partida',
   },
 };
 

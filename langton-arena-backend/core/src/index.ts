@@ -143,6 +143,7 @@ export {
 } from './protocol/stage8';
 export type {
   PlayerInfo,
+  SpectatorInfo,
   ClientMessage,
   ClientMessageType,
   ServerMessage,

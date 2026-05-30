@@ -60,8 +60,9 @@ export function Router() {
     handledRef.current = true;
 
     // Stage 8 Day 7: ?room=abc123 → MatchScreen
+    // Stage 9.4: ?spectate=abc123 → MatchScreen в spectator mode
     const params = new URLSearchParams(window.location.search);
-    const roomCode = params.get('room');
+    const roomCode = params.get('room') ?? params.get('spectate');
     if (roomCode && roomCode.length > 0) {
       setScreen('match');
       return; // не парсим preset/replay одновременно с room

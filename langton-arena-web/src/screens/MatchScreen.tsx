@@ -90,7 +90,7 @@ function getWsUrl(): string {
 function readRoomCode(): string | null {
   try {
     const p = new URLSearchParams(window.location.search);
-    return p.get('room');
+    return p.get('room') ?? p.get('spectate');
   } catch { return null; }
 }
 
@@ -102,6 +102,14 @@ function readBotParam(): BotDifficulty | null {
     if (v === 'easy' || v === 'normal' || v === 'hard') return v;
     return null;
   } catch { return null; }
+}
+
+/** Stage 9.4: ?spectate=ROOMCODE → MatchScreen mounts с isSpectator=true. */
+function readSpectatorMode(): boolean {
+  try {
+    const p = new URLSearchParams(window.location.search);
+    return p.has('spectate');
+  } catch { return false; }
 }
 
 function getBrowserLocale(): string {
@@ -141,12 +149,16 @@ export function MatchScreen() {
   const { setScreen } = useAppState();
 
   const roomCode = readRoomCode();
+  // Stage 9.4: spectator mode flag — ?spectate=ROOMCODE
+  const isSpectator = readSpectatorMode();
   const [phase, setPhase] = useState<MatchPhase>(roomCode ? 'connecting' : 'error');
   const [errorText, setErrorText] = useState<string | null>(
     roomCode ? null : t('match.noRoomCode', 'No room code in URL (?room=)'),
   );
   const [clientId, setClientId] = useState<string | null>(null);
   const [players, setPlayers] = useState<PlayerInfo[]>([]);
+  // Stage 9.4: spectator list — for displaying count в top bar.
+  const [spectators, setSpectators] = useState<{ clientId: string; nickname: string }[]>([]);
   const nicknameRef = useRef(getOrCreateNickname());
   const wsRef = useRef<WSClient | null>(null);
 
@@ -453,7 +465,9 @@ export function MatchScreen() {
         nickname: nicknameRef.current,
         locale: getBrowserLocale(),
         deviceId: getDeviceId(),
-        ...(savedToken ? { resumeToken: savedToken } : {}),
+        // Stage 9.4: spectator flag (no resume token — spectators don't reconnect to slot)
+        ...(isSpectator ? { spectator: true } : {}),
+        ...(savedToken && !isSpectator ? { resumeToken: savedToken } : {}),
       });
     };
 
@@ -478,26 +492,36 @@ export function MatchScreen() {
           case 'room_joined':
             setClientId(msg.clientId);
             setPlayers(msg.players);
+            // Stage 9.4: snapshot spectator list если server прислал.
+            if (msg.spectators) setSpectators(msg.spectators);
             // Track our slot index for deploy click
             {
               const idx = msg.players.findIndex((p) => p.clientId === msg.clientId);
               myPlayerIdxRef.current = idx >= 0 ? idx : null;
             }
             // Day 13: персистим token для будущего reconnect (только если есть
-            // roomCode, что всегда true в этой ветке).
-            if (roomCode && msg.resumeToken) {
+            // roomCode, что всегда true в этой ветке). Не для spectators —
+            // у них нет slot для resume.
+            if (roomCode && msg.resumeToken && !msg.asSpectator) {
               setResumeToken(roomCode, msg.resumeToken);
             }
             // Если это resume — match_resume_state придёт следующим,
             // оставляем phase='reconnecting' до его получения. Иначе lobby.
+            // Stage 9.4: spectators не имеют lobby — go straight to playing
+            // если матч активен, иначе lobby (только pre-match preview).
             if (msg.resumed) {
               setReconnectStatus('reconnecting');
             } else {
               setPhase('lobby');
             }
             break;
+          case 'spectator_joined':
+          case 'spectator_left':
+            setSpectators(msg.spectators);
+            break;
           case 'room_updated':
             setPlayers(msg.players);
+            if (msg.spectators) setSpectators(msg.spectators);
             {
               const myId = clientId; // closure capture последнего state
               const idx = msg.players.findIndex((p) => p.clientId === myId);
@@ -694,9 +718,11 @@ export function MatchScreen() {
   // ─── Actions ──────────────────────────────────────────────────────────────
 
   const toggleReady = useCallback(() => {
+    // Stage 9.4: spectators не могут ready
+    if (isSpectator) return;
     if (!wsRef.current || !me) return;
     wsRef.current.send({ type: 'set_ready', ready: !me.ready });
-  }, [me]);
+  }, [me, isSpectator]);
 
   const copyShareUrl = useCallback(async () => {
     try {
@@ -721,6 +747,8 @@ export function MatchScreen() {
   // Reconciliation: ghost удаляется когда server echo'ит deploy в match_tick
   // (см. case 'match_tick') или присылает error('INVALID_DEPLOY').
   const handleDeployClick = useCallback((x: number, y: number) => {
+    // Stage 9.4: spectators не могут deploy
+    if (isSpectator) return;
     const idx = myPlayerIdxRef.current;
     if (idx == null || !wsRef.current) return;
     const tick = currentTickRef.current;
@@ -728,7 +756,7 @@ export function MatchScreen() {
     // Optimistic ghost (instant visual feedback ~RTT/2 раньше реального ant).
     setPendingGhosts((prev) => addGhost(prev, makeGhost(x, y, idx, tick)));
     fx.play('deploy');
-  }, []);
+  }, [isSpectator]);
 
   // Stage 8 Day 9: server-driven onTick callback.
   // LangtonField сделал step → sim.tick поднялся → достаём queued deploys для
@@ -778,6 +806,20 @@ export function MatchScreen() {
         {!isNarrow && <Eyebrow>· {t('match.title', 'PvP Match')}</Eyebrow>}
         {roomCode && (
           <Chip color={T.info} size="sm">room: {roomCode}</Chip>
+        )}
+        {/* Stage 9.4: spectator badge */}
+        {isSpectator && (
+          <Chip color={T.warning} filled size="sm" data-testid="spectator-badge">
+            👁 {t('match.spectator', 'SPECTATOR')}
+          </Chip>
+        )}
+        {/* Stage 9.4: spectator count для players (отображается только им) */}
+        {!isSpectator && spectators.length > 0 && (
+          <Chip color={T.textMuted} size="sm" data-testid="spectator-count">
+            👁 {spectators.length} {spectators.length === 1
+              ? t('match.spectatorOne', 'watching')
+              : t('match.spectatorMany', 'watching')}
+          </Chip>
         )}
         <span style={{
           marginLeft: isNarrow ? 0 : 'auto',
@@ -853,6 +895,7 @@ export function MatchScreen() {
             roomConfig={roomConfig}
             hostClientId={hostClientId}
             onConfigChange={sendConfigPatch}
+            isSpectator={isSpectator}
           />
         )}
         {phase === 'countdown' && (
@@ -1038,6 +1081,7 @@ function LobbyView({
   t, T, players, me, opponent, roomCode, onReadyToggle, onCopyUrl,
   onAddBot, botSpawned,
   roomConfig, hostClientId, onConfigChange,
+  isSpectator,
 }: SubViewBase & {
   players: PlayerInfo[];
   me: PlayerInfo | undefined;
@@ -1051,6 +1095,8 @@ function LobbyView({
   roomConfig: SandboxConfig | null;
   hostClientId: string | null;
   onConfigChange: (patch: RoomConfigPatch) => void;
+  // Stage 9.4: hide Ready button + invite UI для зрителей.
+  isSpectator: boolean;
 }) {
   // Day 19: room invite URL — для QR code и Web Share.
   const shareUrl = typeof window !== 'undefined' ? window.location.href : '';
@@ -1120,7 +1166,19 @@ function LobbyView({
         />
       )}
 
-      {me && (
+      {/* Stage 9.4: spectators see "Watching..." instead of Ready button */}
+      {isSpectator ? (
+        <div style={{
+          padding: 14, textAlign: 'center',
+          background: T.bgOverlay,
+          border: `1px solid ${T.border}`,
+          borderRadius: T.radiusSm,
+          color: T.textMuted, fontSize: 13,
+        }}>
+          {t('match.spectatorWaiting',
+            '👁 You are spectating — waiting for players to start the match…')}
+        </div>
+      ) : me && (
         <Button
           variant={me.ready ? 'ghost' : 'primary'}
           size="md"
@@ -1185,6 +1243,20 @@ function LobbyView({
             {webShareOk
               ? `📤 ${t('match.shareInvite', 'Share invite')}`
               : `📋 ${t('match.copyShareUrl', 'Copy URL')}`}
+          </Button>
+
+          {/* Stage 9.4: spectator invite link — share read-only viewer URL */}
+          <Button
+            variant="ghost"
+            size="sm"
+            data-testid="spectator-link"
+            onClick={async () => {
+              const url = `${window.location.origin}${window.location.pathname}?spectate=${roomCode}`;
+              try { await navigator.clipboard.writeText(url); }
+              catch { window.prompt(t('match.copyUrl', 'Copy this URL:'), url); }
+            }}
+          >
+            👁 {t('match.copySpectatorUrl', 'Copy spectator link')}
           </Button>
 
           {/* Day 31: Bot opponent option — для когда никто не приходит */}
