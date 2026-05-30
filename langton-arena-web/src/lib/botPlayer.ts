@@ -263,13 +263,17 @@ export function isPanicMode(
 
 /** Display name бота — показывается в PlayerSlot. */
 export function botDisplayName(difficulty: BotDifficulty): string {
+  // Day 41 fix: убраны emoji + parens чтобы пройти server-side
+  // isValidNickname (regex /^[\p{L}\p{N}_\-. ]+$/u — не пропускает 🤖 или ()).
+  // Pattern: "Bot-Easy" / "Bot-Normal" / "Bot-Hard".
+  // UI добавляет 🤖 emoji при render'е через isBotNickname check.
   const titleCase = difficulty.charAt(0).toUpperCase() + difficulty.slice(1);
-  return `🤖 Bot (${titleCase})`;
+  return `Bot-${titleCase}`;
 }
 
 /** Идентификация бота по nickname (для UI styling). */
 export function isBotNickname(nickname: string): boolean {
-  return nickname.startsWith('🤖 ');
+  return /^Bot-(Easy|Normal|Hard)$/.test(nickname);
 }
 
 // ─── BotPlayer class ─────────────────────────────────────────────────────────

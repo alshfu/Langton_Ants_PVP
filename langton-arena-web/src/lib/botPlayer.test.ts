@@ -145,22 +145,26 @@ describe('pickDeployLocation', () => {
 });
 
 describe('botDisplayName', () => {
-  it('format: "🤖 Bot (Easy)" etc', () => {
-    expect(botDisplayName('easy')).toBe('🤖 Bot (Easy)');
-    expect(botDisplayName('normal')).toBe('🤖 Bot (Normal)');
-    expect(botDisplayName('hard')).toBe('🤖 Bot (Hard)');
+  it('Day 41 fix: ASCII-only format "Bot-Easy/Normal/Hard"', () => {
+    // server isValidNickname regex /^[\p{L}\p{N}_\-. ]+$/u rejects emoji/parens
+    expect(botDisplayName('easy')).toBe('Bot-Easy');
+    expect(botDisplayName('normal')).toBe('Bot-Normal');
+    expect(botDisplayName('hard')).toBe('Bot-Hard');
   });
 });
 
 describe('isBotNickname', () => {
-  it('true для bot names', () => {
-    expect(isBotNickname('🤖 Bot (Easy)')).toBe(true);
-    expect(isBotNickname('🤖 anything')).toBe(true);
+  it('true для Bot-Easy/Normal/Hard', () => {
+    expect(isBotNickname('Bot-Easy')).toBe(true);
+    expect(isBotNickname('Bot-Normal')).toBe(true);
+    expect(isBotNickname('Bot-Hard')).toBe(true);
   });
   it('false для regular names', () => {
     expect(isBotNickname('SilverWolf')).toBe(false);
     expect(isBotNickname('🐺 Wolf')).toBe(false);
-    expect(isBotNickname('Bot (Easy)')).toBe(false); // no robot emoji
+    expect(isBotNickname('Bot (Easy)')).toBe(false); // wrong format (parens)
+    expect(isBotNickname('🤖 Bot (Easy)')).toBe(false); // old format с emoji
+    expect(isBotNickname('Bot-Insane')).toBe(false); // unknown difficulty
     expect(isBotNickname('')).toBe(false);
   });
 });
