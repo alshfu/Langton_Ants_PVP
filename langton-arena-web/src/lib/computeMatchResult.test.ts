@@ -214,4 +214,163 @@ describe('describeWinProgress', () => {
     expect(describeWinProgress({ kind: 'n_mutants_total', threshold: 5 }, ps, players, 100)).toContain('Alpha 2/5');
     expect(describeWinProgress({ kind: 'survival', threshold: 1 }, ps, players, 100)).toContain('alive');
   });
+
+  it('hold_majority shows threshold + leader', () => {
+    const ps = { p0: makeStats({ territoryPct: 0.42 }) };
+    const wc: WinCondition = { kind: 'hold_majority', threshold: 50, holdTicks: 100 };
+    const result = describeWinProgress(wc, ps, players, 50);
+    expect(result).toContain('Hold ≥50%');
+    expect(result).toContain('Alpha');
+    expect(result).toContain('42.0');
+  });
+});
+
+// ─── Day 34: hold_majority win condition ────────────────────────────────────
+describe('computeMatchResult: hold_majority', () => {
+  const twoPlayers = [
+    { id: 'p0', name: 'Alpha' },
+    { id: 'p1', name: 'Beta' },
+  ];
+
+  it('никто не выше threshold → counter=0 для всех', () => {
+    const wc: WinCondition = { kind: 'hold_majority', threshold: 50, holdTicks: 100 };
+    const ps = {
+      p0: makeStats({ territoryPct: 0.30 }),
+      p1: makeStats({ territoryPct: 0.40 }),
+    };
+    const result = computeMatchResult({
+      currentTick: 10, winCondition: wc, perPlayer: ps,
+      players: twoPlayers, prevMatch: empty,
+    });
+    expect(result.finished).toBe(false);
+    expect(result.holdCounters).toEqual({ p0: 0, p1: 0 });
+  });
+
+  it('первый tick выше threshold → counter=1', () => {
+    const wc: WinCondition = { kind: 'hold_majority', threshold: 50, holdTicks: 100 };
+    const ps = {
+      p0: makeStats({ territoryPct: 0.60 }),
+      p1: makeStats({ territoryPct: 0.30 }),
+    };
+    const result = computeMatchResult({
+      currentTick: 10, winCondition: wc, perPlayer: ps,
+      players: twoPlayers, prevMatch: empty,
+    });
+    expect(result.finished).toBe(false);
+    expect(result.holdCounters).toEqual({ p0: 1, p1: 0 });
+  });
+
+  it('accumulates counter через consecutive ticks', () => {
+    const wc: WinCondition = { kind: 'hold_majority', threshold: 50, holdTicks: 100 };
+    const ps = {
+      p0: makeStats({ territoryPct: 0.55 }),
+      p1: makeStats({ territoryPct: 0.30 }),
+    };
+    let prev = empty;
+    for (let t = 0; t < 5; t++) {
+      prev = computeMatchResult({
+        currentTick: t, winCondition: wc, perPlayer: ps,
+        players: twoPlayers, prevMatch: prev,
+      });
+    }
+    expect(prev.finished).toBe(false);
+    expect(prev.holdCounters).toEqual({ p0: 5, p1: 0 });
+  });
+
+  it('counter resets когда упал ниже threshold', () => {
+    const wc: WinCondition = { kind: 'hold_majority', threshold: 50, holdTicks: 100 };
+    // p0 был выше 50% на counter=5, затем упал
+    const prevWithCounter: MatchResult = {
+      ...empty,
+      holdCounters: { p0: 5, p1: 0 },
+    };
+    const ps = {
+      p0: makeStats({ territoryPct: 0.45 }),  // упал ниже 50
+      p1: makeStats({ territoryPct: 0.35 }),
+    };
+    const result = computeMatchResult({
+      currentTick: 6, winCondition: wc, perPlayer: ps,
+      players: twoPlayers, prevMatch: prevWithCounter,
+    });
+    expect(result.finished).toBe(false);
+    expect(result.holdCounters).toEqual({ p0: 0, p1: 0 });
+  });
+
+  it('победа когда counter достигает holdTicks', () => {
+    const wc: WinCondition = { kind: 'hold_majority', threshold: 50, holdTicks: 10 };
+    const prevWithCounter: MatchResult = {
+      ...empty,
+      holdCounters: { p0: 9, p1: 0 },
+    };
+    const ps = {
+      p0: makeStats({ territoryPct: 0.65 }),
+      p1: makeStats({ territoryPct: 0.20 }),
+    };
+    const result = computeMatchResult({
+      currentTick: 10, winCondition: wc, perPlayer: ps,
+      players: twoPlayers, prevMatch: prevWithCounter,
+    });
+    expect(result.finished).toBe(true);
+    expect(result.winnerId).toBe('p0');
+    expect(result.winnerName).toBe('Alpha');
+    expect(result.reason).toContain('≥50%');
+    expect(result.reason).toContain('10 ticks');
+  });
+
+  it('default holdTicks=100 если не задан', () => {
+    const wc: WinCondition = { kind: 'hold_majority', threshold: 50 };
+    const ps = { p0: makeStats({ territoryPct: 0.60 }), p1: makeStats({ territoryPct: 0.30 }) };
+    let prev = empty;
+    for (let t = 0; t < 99; t++) {
+      prev = computeMatchResult({
+        currentTick: t, winCondition: wc, perPlayer: ps,
+        players: twoPlayers, prevMatch: prev,
+      });
+    }
+    expect(prev.finished).toBe(false);  // 99 < 100 → not yet
+    expect(prev.holdCounters?.p0).toBe(99);
+    // Один tick больше → finish
+    const final = computeMatchResult({
+      currentTick: 99, winCondition: wc, perPlayer: ps,
+      players: twoPlayers, prevMatch: prev,
+    });
+    expect(final.finished).toBe(true);
+    expect(final.winnerId).toBe('p0');
+  });
+
+  it('threshold ровно (>=) триггерит counter', () => {
+    const wc: WinCondition = { kind: 'hold_majority', threshold: 50, holdTicks: 100 };
+    const ps = {
+      p0: makeStats({ territoryPct: 0.50 }), // exactly 50%
+      p1: makeStats({ territoryPct: 0.40 }),
+    };
+    const result = computeMatchResult({
+      currentTick: 1, winCondition: wc, perPlayer: ps,
+      players: twoPlayers, prevMatch: empty,
+    });
+    expect(result.holdCounters?.p0).toBe(1);
+  });
+
+  it('ties: оба >threshold → оба counter accumulate', () => {
+    // В 3-player сценарии оба могут быть >threshold (порог низкий)
+    const wc: WinCondition = { kind: 'hold_majority', threshold: 33, holdTicks: 5 };
+    const three = [
+      { id: 'p0', name: 'A' }, { id: 'p1', name: 'B' }, { id: 'p2', name: 'C' },
+    ];
+    const ps = {
+      p0: makeStats({ territoryPct: 0.40 }), // > 33%
+      p1: makeStats({ territoryPct: 0.40 }), // > 33%
+      p2: makeStats({ territoryPct: 0.10 }),
+    };
+    let prev = empty;
+    for (let t = 0; t < 5; t++) {
+      prev = computeMatchResult({
+        currentTick: t, winCondition: wc, perPlayer: ps,
+        players: three, prevMatch: prev,
+      });
+    }
+    // Оба достигли 5 → но winner = первый в списке (p0)
+    expect(prev.finished).toBe(true);
+    expect(prev.winnerId).toBe('p0');
+  });
 });

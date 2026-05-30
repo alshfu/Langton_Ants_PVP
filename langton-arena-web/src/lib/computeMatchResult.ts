@@ -54,6 +54,16 @@ export function computeMatchResult(args: ComputeArgs): MatchResult {
 
     case 'survival':
       return computeSurvival(currentTick, perPlayer, players);
+
+    case 'hold_majority':
+      return computeHoldMajority(
+        currentTick,
+        winCondition.threshold,
+        winCondition.holdTicks ?? 100,
+        perPlayer,
+        players,
+        prevMatch,
+      );
   }
 }
 
@@ -214,6 +224,68 @@ function notFinished(): MatchResult {
   };
 }
 
+// ─── Day 34: Hold majority — кто первый держит >=N% подряд K ticks ──────────
+/**
+ * Hold majority: каждый tick проверяем кто > thresholdPct%. Если игрок
+ * держит порог N-й tick подряд — увеличиваем его holdCounter. Если меньше —
+ * сбрасываем в 0. Первый кто достиг holdTicks → wins.
+ *
+ * thresholdPct — порог в процентах (0..100), e.g. 50 = >50% территории.
+ * holdTicks — сколько consecutive ticks нужно удержать (e.g. 100 = 10 sec @ 10 TPS).
+ *
+ * State хранится в `prevMatch.holdCounters: Record<playerId, number>`.
+ */
+function computeHoldMajority(
+  currentTick: number,
+  thresholdPct: number,
+  holdTicks: number,
+  perPlayer: Record<string, PlayerLiveStats>,
+  players: PlayerRef[],
+  prevMatch: MatchResult,
+): MatchResult {
+  const prevCounters = prevMatch.holdCounters ?? {};
+  const newCounters: Record<string, number> = {};
+
+  for (const p of players) {
+    const ps = perPlayer[p.id];
+    const territoryPct = ps ? ps.territoryPct * 100 : 0; // PlayerLiveStats stores 0..1
+    const wasAbove = territoryPct >= thresholdPct;
+    const prev = prevCounters[p.id] ?? 0;
+    newCounters[p.id] = wasAbove ? prev + 1 : 0;
+  }
+
+  // Найти кто достиг holdTicks (priority: max counter, ties → first player)
+  let winnerId: string | null = null;
+  let winnerName: string | null = null;
+  let winnerCount = -1;
+  for (const p of players) {
+    const c = newCounters[p.id] ?? 0;
+    if (c >= holdTicks && c > winnerCount) {
+      winnerCount = c;
+      winnerId = p.id;
+      winnerName = p.name;
+    }
+  }
+
+  if (winnerId) {
+    return {
+      finished: true,
+      winnerId,
+      winnerName,
+      reason: `Held ≥${thresholdPct}% for ${holdTicks} ticks`,
+      finishedAtTick: currentTick,
+      bannerVisible: true,
+      holdCounters: newCounters,
+    };
+  }
+
+  // Не finished — но сохраняем counters для next tick
+  return {
+    ...notFinished(),
+    holdCounters: newCounters,
+  };
+}
+
 /**
  * Helper для UI: human-readable progress текущего win condition.
  * Возвращает строку типа "5 mutants total: P2 leads 3/5".
@@ -252,6 +324,21 @@ export function describeWinProgress(
   if (winCondition.kind === 'survival') {
     const alive = players.filter((p) => (perPlayer[p.id]?.alive ?? 0) > 0).length;
     return `Survival: ${alive}/${players.length} players alive`;
+  }
+
+  if (winCondition.kind === 'hold_majority') {
+    const holdTicks = winCondition.holdTicks ?? 100;
+    // Текущий лидер по territory
+    let leader = '?';
+    let leaderPct = 0;
+    for (const p of players) {
+      const pct = (perPlayer[p.id]?.territoryPct ?? 0) * 100;
+      if (pct > leaderPct) {
+        leaderPct = pct;
+        leader = p.name;
+      }
+    }
+    return `Hold ≥${winCondition.threshold}% for ${holdTicks}t — leader ${leader} ${leaderPct.toFixed(1)}%`;
   }
 
   return '';

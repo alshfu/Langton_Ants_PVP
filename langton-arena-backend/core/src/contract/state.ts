@@ -138,12 +138,18 @@ export type WinConditionKind =
   | 'first_mutant'
   | 'n_mutants_total'
   | 'n_mutants_single'
-  | 'survival';
+  | 'survival'
+  // Day 34: hold_majority — первый кто захватит >= threshold% территории
+  // и продержится holdTicks подряд → wins.
+  | 'hold_majority';
 
 export interface WinCondition {
   kind: WinConditionKind;
-  /** Параметр N для time / n_mutants_total / n_mutants_single. */
+  /** Параметр N для time / n_mutants_total / n_mutants_single.
+   *  Day 34: для hold_majority это % порог (0..100, обычно 50). */
   threshold: number;
+  /** Day 34: hold_majority only — сколько ticks подряд держать threshold для win. */
+  holdTicks?: number;
 }
 
 // ─── Stage 2: Live Stats ─────────────────────────────────────────────────────
@@ -247,6 +253,9 @@ export interface MatchResult {
     cells: number;
     pct: number;
   }>;
+  /** Day 34: hold_majority — per-player consecutive ticks above threshold.
+   *  Используется computeMatchResult для accumulation между ticks. */
+  holdCounters?: Record<string, number>;
 }
 
 export interface SandboxRuntimeState {
