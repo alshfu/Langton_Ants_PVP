@@ -45,10 +45,10 @@ export function getApiBaseUrl(): string {
   if (env?.VITE_API_BASE_URL) return env.VITE_API_BASE_URL.replace(/\/$/, '');
   if (typeof window !== 'undefined') {
     const host = window.location.hostname;
+    // GH Pages статика — VPS хостит API на alshfu.com (nginx → 127.0.0.1:8080).
+    if (host.endsWith('github.io')) return 'https://alshfu.com';
     if (host && host !== 'localhost' && host !== '127.0.0.1') {
-      // На GH Pages статика хостится на github.io, а API — на VPS.
-      // Production маршрутизация: VITE_API_BASE_URL должна быть задана.
-      // Fallback — same-origin (работает только если reverse proxy настроен).
+      // Same-origin — работает если reverse proxy настроен на /api.
       return `${window.location.protocol}//${host}`;
     }
   }
