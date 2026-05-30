@@ -49,7 +49,22 @@ export type ClientMessage =
   /** Day 23: rematch request — после match_ended клиент шлёт это
    *  чтобы выразить намерение сыграть ещё. Server ждёт оба намерения
    *  (60s timeout), затем resetMatch() → room возвращается в lobby. */
-  | { type: 'request_rematch' };
+  | { type: 'request_rematch' }
+  /** Stage 9.1: host задаёт config для матча (только host имеет права).
+   *  Partial — server merge'ит с defaultMatchConfig. Server validate'ит
+   *  ranges + broadcasts 'room_config_updated' всем в room. */
+  | { type: 'set_room_config'; config: PartialMatchConfig };
+
+/** Stage 9.1: подмножество SandboxConfig которое host может override.
+ *  Server валидирует ranges (e.g. width 20..120) и rejects out-of-bounds. */
+export interface PartialMatchConfig {
+  width?: number;
+  height?: number;
+  topology?: 'torus' | 'wall' | 'void' | 'bounce';
+  winCondition?: { kind: string; threshold?: number; holdTicks?: number };
+  baseTps?: number;
+  mutationEnabled?: boolean;
+}
 
 /** Discriminator-strings, удобно для switch routing. */
 export type ClientMessageType = ClientMessage['type'];
@@ -83,6 +98,10 @@ export type ServerMessage =
   /** Day 23: server reset'нул match — комната снова в lobby, оба игрока
    *  unready. Client сбрасывает phase в 'lobby' и matchResult/scoreboard. */
   | { type: 'rematch_reset' }
+  /** Stage 9.1: broadcast когда host задал новый config. Все клиенты в
+   *  room update'ят preview. config — полный merged SandboxConfig после
+   *  validation. hostClientId — для UI "Only host can change". */
+  | { type: 'room_config_updated'; config: SandboxConfig; hostClientId: string }
   | { type: 'error';          code: string; message: string; locale: string;
       /** Day 10: контекст rejected действия — для client-side prediction
        *  reconciliation. Опционально, заполняется только когда есть смысл
@@ -115,6 +134,9 @@ export const ERROR_CODES = {
   ENGINE_VERSION_MISMATCH: 'ENGINE_VERSION_MISMATCH', // client engine ≠ server
   // Day 13: reconnect
   RESUME_TOKEN_EXPIRED:    'RESUME_TOKEN_EXPIRED',    // grace period истёк
+  // Stage 9.1: config selection
+  NOT_HOST:                'NOT_HOST',                // set_room_config от non-host
+  INVALID_CONFIG:          'INVALID_CONFIG',          // partial config out of ranges
 } as const;
 
 export type ErrorCode = typeof ERROR_CODES[keyof typeof ERROR_CODES];
@@ -144,6 +166,8 @@ export function isClientMessage(obj: unknown): obj is ClientMessage {
       return typeof m.t === 'number';
     case 'request_rematch':
       return true;
+    case 'set_room_config':
+      return typeof m.config === 'object' && m.config !== null;
     default:
       return false;
   }

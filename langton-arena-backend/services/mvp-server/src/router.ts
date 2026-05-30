@@ -8,6 +8,7 @@ import { ERROR_CODES, isClientMessage, type ClientMessage } from './messages.js'
 import type { Connection } from './connection.js';
 import type { ServerContext } from './serverContext.js';
 import { isValidNickname } from './nicknames.js';
+import { defaultMatchConfig } from './matchConfig.js';
 import {
   startMatchCountdown,
   cancelMatchCountdown,
@@ -86,6 +87,7 @@ function dispatch(conn: Connection, msg: ClientMessage, ctx: ServerContext): voi
     case 'deploy':          return handleDeploy(conn, msg, ctx);
     case 'ping':            return handlePing(conn, msg);
     case 'request_rematch': return handleRequestRematch(conn, ctx);
+    case 'set_room_config': return handleSetRoomConfig(conn, msg, ctx);
     default: {
       const _exhaustive: never = msg;
       void _exhaustive;
@@ -312,7 +314,90 @@ function handleRequestRematch(conn: Connection, ctx: ServerContext): void {
   requestRematch(room, conn.clientId);
 }
 
+/**
+ * Stage 9.1: handle 'set_room_config'. Только host имеет права.
+ * Validate partial config ranges, merge с room.configOverrides,
+ * broadcast 'room_config_updated' с полным merged config.
+ */
+function handleSetRoomConfig(
+  conn: Connection,
+  msg: Extract<ClientMessage, { type: 'set_room_config' }>,
+  ctx: ServerContext,
+): void {
+  if (!conn.roomCode) {
+    sendErrorWithBudget(conn, ERROR_CODES.NOT_IN_ROOM);
+    return;
+  }
+  const room = ctx.rooms.get(conn.roomCode);
+  if (!room) {
+    sendErrorWithBudget(conn, ERROR_CODES.ROOM_NOT_FOUND);
+    return;
+  }
+  // Только в lobby phase можно менять config
+  if (room.status !== 'lobby') {
+    sendErrorWithBudget(conn, ERROR_CODES.MATCH_NOT_ACTIVE);
+    return;
+  }
+  // Только host
+  if (room.hostClientId !== conn.clientId) {
+    sendErrorWithBudget(conn, ERROR_CODES.NOT_HOST);
+    return;
+  }
+  // Validation
+  const partial = msg.config as Record<string, unknown>;
+  if (typeof partial.width === 'number' && (partial.width < 20 || partial.width > 120)) {
+    sendErrorWithBudget(conn, ERROR_CODES.INVALID_CONFIG);
+    return;
+  }
+  if (typeof partial.height === 'number' && (partial.height < 20 || partial.height > 120)) {
+    sendErrorWithBudget(conn, ERROR_CODES.INVALID_CONFIG);
+    return;
+  }
+  if (typeof partial.baseTps === 'number' && (partial.baseTps < 5 || partial.baseTps > 20)) {
+    sendErrorWithBudget(conn, ERROR_CODES.INVALID_CONFIG);
+    return;
+  }
+  if (partial.topology && !['torus', 'wall', 'void', 'bounce'].includes(String(partial.topology))) {
+    sendErrorWithBudget(conn, ERROR_CODES.INVALID_CONFIG);
+    return;
+  }
+  if (partial.winCondition) {
+    const wc = partial.winCondition as Record<string, unknown>;
+    const kind = String(wc.kind);
+    if (!['none', 'time', 'first_mutant', 'n_mutants_total', 'n_mutants_single', 'survival', 'hold_majority'].includes(kind)) {
+      sendErrorWithBudget(conn, ERROR_CODES.INVALID_CONFIG);
+      return;
+    }
+  }
+  // Merge into room.configOverrides
+  for (const [k, v] of Object.entries(partial)) {
+    room.configOverrides[k] = v;
+  }
+  // Build merged config + broadcast. Используем defaultMatchConfig as base.
+  // seed=1 для preview — real seed подставится при match_start.
+  const merged = mergeConfig(room.configOverrides);
+  room.broadcast({
+    type: 'room_config_updated',
+    config: merged,
+    hostClientId: room.hostClientId,
+  });
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Stage 9.1: merge host's overrides over defaultMatchConfig.
+ * Используется для preview (broadcast) и для match start.
+ */
+export function mergeConfig(overrides: Record<string, unknown>): ReturnType<typeof defaultMatchConfig> {
+  const base = defaultMatchConfig(1);  // seed=1 для preview
+  // Shallow merge — for nested (winCondition) deep merge needed:
+  const merged: Record<string, unknown> = { ...base, ...overrides };
+  if (overrides.winCondition && typeof overrides.winCondition === 'object') {
+    merged.winCondition = { ...base.winCondition, ...(overrides.winCondition as Record<string, unknown>) };
+  }
+  return merged as ReturnType<typeof defaultMatchConfig>;
+}
 
 /**
  * Снять connection с его текущего room (если есть), broadcast обновление,

@@ -39,6 +39,12 @@ export class Room {
   /** Day 23: timeout handle для rematch. Если за 60s не пришло второе
    *  request_rematch — очищаем set и шлём 'opt_out' notify. */
   rematchTimeoutHandle: NodeJS.Timeout | null = null;
+  /** Stage 9.1: host clientId — первый кто joined. Имеет права
+   *  set_room_config. На host disconnect → передаётся next player'у. */
+  hostClientId: string | null = null;
+  /** Stage 9.1: overrides over defaultMatchConfig — apply'ются при
+   *  match start. Cleared после rematch_reset (host может set заново). */
+  configOverrides: Record<string, unknown> = {};
 
   constructor(code: string) {
     this.code = code;
@@ -52,6 +58,10 @@ export class Room {
     this.players.push(conn);
     conn.roomCode = this.code;
     conn.ready = false;
+    // Stage 9.1: first player becomes host
+    if (this.hostClientId == null) {
+      this.hostClientId = conn.clientId;
+    }
     return true;
   }
 
@@ -63,6 +73,10 @@ export class Room {
     if (conn.roomCode === this.code) {
       conn.roomCode = null;
       conn.ready = false;
+    }
+    // Stage 9.1: host disconnect → передаём next player'у
+    if (this.hostClientId === conn.clientId) {
+      this.hostClientId = this.players[0]?.clientId ?? null;
     }
   }
 
