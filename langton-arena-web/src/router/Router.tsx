@@ -7,22 +7,24 @@
 // Stage 7: при загрузке страницы проверяет URL на ?p= или ?r= параметры.
 // Если есть — загружает shared payload и переходит в sandbox.
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, lazy, Suspense } from 'react';
 import { useAppState } from '@state/AppStateProvider';
 import type { ScreenId } from '@core/contract/state';
 
+// Day 37: code splitting. MenuScreen + MatchScreen остаются в main bundle
+// (entry points + most common). Sandbox, Settings, Profile, etc — lazy chunks.
 import { MenuScreen } from '@screens/MenuScreen';
-import { SandboxScreen } from '@screens/SandboxScreen';
-import { SettingsScreen } from '@screens/SettingsScreen';
-import { MatchmakingScreen } from '@screens/MatchmakingScreen';
-import { LobbyScreen } from '@screens/LobbyScreen';
 import { MatchScreen } from '@screens/MatchScreen';
-import { ResultScreen } from '@screens/ResultScreen';
-import { ProfileScreen } from '@screens/ProfileScreen';
-import { CreditsScreen } from '@screens/CreditsScreen';
-import { ChangelogScreen } from '@screens/ChangelogScreen';
+const SandboxScreen = lazy(() => import('@screens/SandboxScreen').then(m => ({ default: m.SandboxScreen })));
+const SettingsScreen = lazy(() => import('@screens/SettingsScreen').then(m => ({ default: m.SettingsScreen })));
+const MatchmakingScreen = lazy(() => import('@screens/MatchmakingScreen').then(m => ({ default: m.MatchmakingScreen })));
+const LobbyScreen = lazy(() => import('@screens/LobbyScreen').then(m => ({ default: m.LobbyScreen })));
+const ResultScreen = lazy(() => import('@screens/ResultScreen').then(m => ({ default: m.ResultScreen })));
+const ProfileScreen = lazy(() => import('@screens/ProfileScreen').then(m => ({ default: m.ProfileScreen })));
+const CreditsScreen = lazy(() => import('@screens/CreditsScreen').then(m => ({ default: m.CreditsScreen })));
+const ChangelogScreen = lazy(() => import('@screens/ChangelogScreen').then(m => ({ default: m.ChangelogScreen })));
 
-const SCREEN_MAP: Record<ScreenId, () => JSX.Element> = {
+const SCREEN_MAP: Record<ScreenId, React.ComponentType> = {
   menu:         MenuScreen,
   sandbox:      SandboxScreen,
   settings:     SettingsScreen,
@@ -34,6 +36,19 @@ const SCREEN_MAP: Record<ScreenId, () => JSX.Element> = {
   credits:      CreditsScreen,
   changelog:    ChangelogScreen,
 };
+
+function ScreenFallback() {
+  return (
+    <div style={{
+      width: '100vw', height: '100vh',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: '#0E0B1F', color: '#888',
+      fontFamily: 'JetBrains Mono, monospace', fontSize: 12,
+    }}>
+      Loading…
+    </div>
+  );
+}
 
 export function Router() {
   const { state, setScreen, sandbox: sx } = useAppState();
@@ -84,5 +99,9 @@ export function Router() {
   }, [sx, setScreen]);
 
   const Component = SCREEN_MAP[state.currentScreen] ?? MenuScreen;
-  return <Component />;
+  return (
+    <Suspense fallback={<ScreenFallback />}>
+      <Component />
+    </Suspense>
+  );
 }
