@@ -3632,6 +3632,33 @@ class JsonFilePersistence implements PersistenceLayer {
 **идентичные** интерфейсу с params (даже если `void`), иначе tsc strict
 mode валит сборку (`noUnusedParameters`). Префикс `_` спасает.
 
+### Stage 9.4 — Spectator mode (~3 дня)
+
+Третий+ connection в room теперь watches без playing. URL pattern:
+`/?spectate=ABCDEF` → MatchScreen mounts с `isSpectator=true`.
+
+Что добавили:
+- Protocol: `join_room.spectator?` flag + `spectator_joined` / `spectator_left`
+  broadcasts + `SpectatorInfo` type. Error code `SPECTATOR_CANT_PLAY` для
+  reject deploy/set_ready/rematch.
+- `Room.spectators: Connection[]` — отдельный array. `broadcast()` loops
+  через players AND spectators (одинаковый full feed).
+- `handleJoinRoom` ветвится: spectator path early-returns после addSpectator +
+  asSpectator:true в room_joined. Если матч активен — server шлёт
+  match_resume_state так же как для reconnect'а, чтобы catch up'нуть state.
+- Players UI получает chip "👁 N watching", spectators — chip "👁 SPECTATOR"
+  + текст "You are spectating…" вместо Ready кнопки. Click на canvas
+  early-return'ит.
+- "Copy spectator link" button в LobbyView — share read-only URL.
+
+Из неочевидного: rooms cleanup'ятся когда **players** ушли, не когда
+spectators ушли. Иначе single spec удерживал бы зомби-room с 0 игроков
+вечно. На leave последнего player'а — spectators `roomCode = null` и
+room удаляется.
+
+Tests: +8 spectator unit tests. Total server 132/133, web 301/301, build clean.
+E2E на проде: 129 PASS / 1 FAIL / 1 WARN — flaky cold-load timeout не связан.
+
 ### Stage 9.3 — Matchmaking queue (~3 дня)
 
 Игроки нажимают "Find match" → server pairs со similar-rated player через
