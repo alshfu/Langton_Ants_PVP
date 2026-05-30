@@ -33,6 +33,8 @@ import { SERVER_ENGINE_VERSION } from './matchConfig.js';
 export interface MatchOptions {
   /** Interval в ms между tick'ами. Default 100 (10 TPS). Test override: 5-10. */
   tickIntervalMs?: number;
+  /** Stage 9.2: persistence layer для match recording. */
+  persistence?: import('./persistence.js').PersistenceLayer;
 }
 
 export class Match {
@@ -54,6 +56,8 @@ export class Match {
   private holdCounters: Record<string, number> = {};
   /** Day 35: max match duration (safety) — для предотвращения forever matches. */
   private readonly maxMatchTicks = 3000;
+  /** Stage 9.2: persistence reference для recording. */
+  private readonly persistence: import('./persistence.js').PersistenceLayer | null;
 
   constructor(room: Room, config: SandboxConfig, matchId: string, opts: MatchOptions = {}) {
     this.room = room;
@@ -62,7 +66,13 @@ export class Match {
     this.seed = config.seed;
     this.startedAt = Date.now();
     this.tickIntervalMs = opts.tickIntervalMs ?? 100;
+    this.persistence = opts.persistence ?? null;
     this.sim = this.buildSim();
+    // Stage 9.2: record match start с participating user ids
+    if (this.persistence) {
+      const userIds = room.players.map((p) => p.userId ?? `guest-${p.clientId}`);
+      void this.persistence.recordMatchStart(matchId, config, userIds);
+    }
   }
 
   /**
@@ -234,6 +244,10 @@ export class Match {
       replayUrl: `/api/replays/${this.matchId}.json`, // deprecated, kept for backward compat
       replay,
     });
+    // Stage 9.2: record match end (async fire-and-forget — persistence не blocking)
+    if (this.persistence) {
+      void this.persistence.recordMatchEnd(this.matchId, result, replay);
+    }
   }
 
   private makeResult(

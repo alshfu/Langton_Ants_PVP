@@ -39,6 +39,11 @@ export class Connection {
   readonly messageLimit: SlidingWindowLimiter;
   readonly deployLimit: SlidingWindowLimiter;
   readonly errorBudget: SlidingWindowLimiter;
+  /** Stage 9.2: persistent user record (если client sent deviceId).
+   *  null для guest (без stats tracking). */
+  userId: string | null = null;
+  /** Stage 9.2: device-id из join_room (для upsertUser). */
+  deviceId: string | null = null;
 
   constructor(public readonly ws: WebSocket) {
     this.clientId = randomUUID();

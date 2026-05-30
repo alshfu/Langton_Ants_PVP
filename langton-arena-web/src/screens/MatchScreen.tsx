@@ -23,6 +23,7 @@ import {
 import {
   getResumeToken, setResumeToken, clearResumeToken,
 } from '@lib/resumeToken';
+import { getDeviceId } from '@lib/deviceId';
 import { PLAYER_PALETTE } from '@core/shared/constants';
 import { fx } from '@lib/audio';
 import { renderQrSvg, tryWebShare, isWebShareAvailable } from '@lib/qrCode';
@@ -443,6 +444,7 @@ export function MatchScreen() {
 
     // Day 13: helper для (re)send join_room — используется на каждое open
     // (включая reconnect). Подкладывает saved resumeToken если есть.
+    // Stage 9.2: + deviceId для anonymous persistent identity (stats tracking).
     const sendJoin = () => {
       const savedToken = getResumeToken(roomCode);
       wsRef.current?.send({
@@ -450,6 +452,7 @@ export function MatchScreen() {
         roomCode,
         nickname: nicknameRef.current,
         locale: getBrowserLocale(),
+        deviceId: getDeviceId(),
         ...(savedToken ? { resumeToken: savedToken } : {}),
       });
     };

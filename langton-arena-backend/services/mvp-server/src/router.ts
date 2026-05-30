@@ -172,6 +172,14 @@ function handleJoinRoom(
     return;
   }
 
+  // Stage 9.2: upsert user если deviceId передан
+  if (msg.deviceId) {
+    conn.deviceId = msg.deviceId;
+    ctx.persistence.upsertUser(msg.deviceId, msg.nickname).then((user) => {
+      conn.userId = user.id;
+    }).catch(() => { /* silent — guest без stats */ });
+  }
+
   // Day 15: lobby timeout management.
   // - 1-й player → armLobbyTimeout (10 мин)
   // - 2-й player → disarm (есть пара)

@@ -27,6 +27,9 @@ export interface MvpServerOptions {
   graceDisconnectMs?: number;
   /** Day 15: orphan lobby timeout. Default 600000 (10 мин). Test: 100. */
   lobbyTimeoutMs?: number;
+  /** Stage 9.2: persistence layer. Default — createPersistence() (auto-detect).
+   *  Test override: NoOpPersistence. */
+  persistence?: import('./persistence.js').PersistenceLayer;
 }
 
 export class MvpServer {
@@ -48,6 +51,7 @@ export class MvpServer {
     });
     this.ctx = makeContext({
       rooms: new RoomManager(),
+      persistence: opts.persistence,
       matchCountdownMs: opts.matchCountdownMs,
       matchTickIntervalMs: opts.matchTickIntervalMs,
       graceDisconnectMs: opts.graceDisconnectMs,

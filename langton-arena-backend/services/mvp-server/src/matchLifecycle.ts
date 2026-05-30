@@ -207,6 +207,7 @@ function finalizeMatchStart(
 ): void {
   const match = new Match(room, config, matchId, {
     tickIntervalMs: ctx.matchTickIntervalMs,
+    persistence: ctx.persistence,
   });
   room.activeMatch = match;
   room.status = 'playing';

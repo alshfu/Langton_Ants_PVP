@@ -9,9 +9,12 @@
 // бежали за миллисекунды а не за 5+ секунд.
 
 import { RoomManager } from './roomManager.js';
+import { type PersistenceLayer, NoOpPersistence } from './persistence.js';
 
 export interface ServerContext {
   rooms: RoomManager;
+  /** Stage 9.2: persistence layer для match records + user stats. */
+  persistence: PersistenceLayer;
   /** Сколько ms перед match_started (после allReady). Default 3000. */
   matchCountdownMs: number;
   /** Tick interval engine'а внутри match. Default 100 (10 TPS). */
@@ -38,6 +41,7 @@ export function defaultMatchIdFn(): string {
 export function makeContext(opts: Partial<ServerContext> = {}): ServerContext {
   return {
     rooms: opts.rooms ?? new RoomManager(),
+    persistence: opts.persistence ?? new NoOpPersistence(),
     matchCountdownMs: opts.matchCountdownMs ?? 3000,
     matchTickIntervalMs: opts.matchTickIntervalMs ?? 100,
     seedFn: opts.seedFn ?? defaultSeedFn,

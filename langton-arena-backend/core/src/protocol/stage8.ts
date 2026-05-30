@@ -41,7 +41,11 @@ export type ClientMessage =
       /** Day 13: optional resume token — если client'у выдан токен ранее
        *  (room_joined.resumeToken) и connection теперь reconnect, шлёт его.
        *  Server найдёт matching disconnected slot и восстановит. */
-      resumeToken?: string }
+      resumeToken?: string;
+      /** Stage 9.2: optional device-id для persistent anonymous identity.
+       *  Client сохраняет в localStorage. Server upsert'ит user record
+       *  и tracking'ает stats. Если отсутствует — guest без stats. */
+      deviceId?: string }
   | { type: 'leave_room' }
   | { type: 'set_ready';  ready: boolean }
   | { type: 'deploy';     x: number; y: number; tick: number }
