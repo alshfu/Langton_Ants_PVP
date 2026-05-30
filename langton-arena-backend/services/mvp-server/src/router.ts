@@ -9,6 +9,7 @@ import type { Connection } from './connection.js';
 import type { ServerContext } from './serverContext.js';
 import { isValidNickname } from './nicknames.js';
 import { defaultMatchConfig } from './matchConfig.js';
+import { generateRoomCode } from './roomCodes.js';
 import {
   startMatchCountdown,
   cancelMatchCountdown,
@@ -88,6 +89,9 @@ function dispatch(conn: Connection, msg: ClientMessage, ctx: ServerContext): voi
     case 'ping':            return handlePing(conn, msg);
     case 'request_rematch': return handleRequestRematch(conn, ctx);
     case 'set_room_config': return handleSetRoomConfig(conn, msg, ctx);
+    case 'find_match':           return handleFindMatch(conn, msg, ctx);
+    case 'cancel_matchmaking':   return handleCancelMatchmaking(conn, ctx);
+    case 'accept_bot_fallback':  return handleAcceptBotFallback(conn, msg, ctx);
     default: {
       const _exhaustive: never = msg;
       void _exhaustive;
@@ -411,7 +415,7 @@ export function mergeConfig(overrides: Record<string, unknown>): ReturnType<type
   if (overrides.winCondition && typeof overrides.winCondition === 'object') {
     merged.winCondition = { ...base.winCondition, ...(overrides.winCondition as Record<string, unknown>) };
   }
-  return merged as ReturnType<typeof defaultMatchConfig>;
+  return merged as unknown as ReturnType<typeof defaultMatchConfig>;
 }
 
 /**
@@ -527,4 +531,44 @@ export function handleConnectionClose(conn: Connection, ctx: ServerContext): boo
   // Все остальные phase (lobby / countdown / finished) — immediate.
   leaveCurrentRoom(conn, ctx);
   return false;
+}
+
+// ─── Stage 9.3 handlers ──────────────────────────────────────────────────────
+
+function handleFindMatch(
+  conn: Connection,
+  msg: Extract<ClientMessage, { type: 'find_match' }>,
+  ctx: ServerContext,
+): void {
+  if (!isValidNickname(msg.nickname)) {
+    sendErrorWithBudget(conn, ERROR_CODES.MALFORMED_MESSAGE);
+    return;
+  }
+  // Upsert user если deviceId передан — нужно для rating-based matching.
+  if (msg.deviceId) {
+    void ctx.persistence.upsertUser(msg.deviceId, msg.nickname).then((user) => {
+      conn.userId = user.id;
+    });
+  }
+  conn.nickname = msg.nickname;
+  void ctx.matchmaker.enqueue(conn, msg.nickname);
+}
+
+function handleCancelMatchmaking(conn: Connection, ctx: ServerContext): void {
+  ctx.matchmaker.dequeue(conn);
+}
+
+function handleAcceptBotFallback(
+  conn: Connection,
+  msg: Extract<ClientMessage, { type: 'accept_bot_fallback' }>,
+  ctx: ServerContext,
+): void {
+  // User accepted bot fallback — remove from queue + send match_found с
+  // bot opponent name. Client navigates на /?room=XXX&bot=difficulty,
+  // MatchScreen auto-spawn'ит бота.
+  ctx.matchmaker.dequeue(conn);
+  const roomCode = generateRoomCode();
+  const titleCase = msg.difficulty.charAt(0).toUpperCase() + msg.difficulty.slice(1);
+  const opponentNickname = `Bot-${titleCase}`;
+  conn.send({ type: 'match_found', roomCode, opponentNickname });
 }

@@ -37,7 +37,9 @@ export class Matchmaker {
   constructor(
     private readonly rooms: RoomManager,
     private readonly persistence: PersistenceLayer,
-  ) {}
+  ) {
+    void this.rooms; // зарезервировано для будущего room creation upon pair
+  }
 
   /** Start periodic sweep + status broadcasts. */
   start(): void {

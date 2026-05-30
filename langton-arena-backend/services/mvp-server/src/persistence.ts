@@ -71,10 +71,10 @@ export class NoOpPersistence implements PersistenceLayer {
       rating: 1500,
     };
   }
-  async getUserStats(): Promise<User | null> { return null; }
-  async recordMatchStart(): Promise<void> {}
-  async recordMatchEnd(): Promise<void> {}
-  async getRecentMatches(): Promise<MatchRecord[]> { return []; }
+  async getUserStats(_userId: string): Promise<User | null> { return null; }
+  async recordMatchStart(_matchId: string, _config: SandboxConfig, _userIds: string[]): Promise<void> {}
+  async recordMatchEnd(_matchId: string, _result: MatchResult, _replay: Replay | null): Promise<void> {}
+  async getRecentMatches(_limit?: number): Promise<MatchRecord[]> { return []; }
   async close(): Promise<void> {}
 }
 

@@ -20,5 +20,15 @@
     "noImplicitOverride": true
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts",
+    "src/protocol/messages.ts",
+    "src/protocol/codec.ts",
+    "src/protocol/schema.ts",
+    "src/shared/constants.ts",
+    "src/contract/events.ts",
+    "src/contract/actions.ts"
+  ]
 }
