@@ -241,6 +241,8 @@ export function MatchScreen() {
 
   // Day 31: spawn bot opponent в том же room через secondary WS.
   // Server видит бота как обычного player'а — no protocol changes.
+  // Day 41 fix: auto-Ready user после bot spawn — иначе матч не стартует
+  // без manual Ready click (UX issue из user feedback).
   const spawnBot = useCallback(async (difficulty: BotDifficulty) => {
     if (!roomCode || botRef.current) return;
     setBotDialogOpen(false);
@@ -251,6 +253,13 @@ export function MatchScreen() {
     });
     try {
       await botRef.current.start();
+      // Auto-Ready user — explicit intent был выбор "Play vs Bot" в menu/lobby
+      // bot тоже auto-ready'ит после room_joined → match starts автоматически.
+      setTimeout(() => {
+        if (wsRef.current) {
+          wsRef.current.send({ type: 'set_ready', ready: true });
+        }
+      }, 500); // small delay чтобы bot joined first
     } catch {
       botRef.current = null;
     }
