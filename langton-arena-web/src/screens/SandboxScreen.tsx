@@ -60,6 +60,7 @@ import { music, moodFromDelta } from '@lib/music';
 import { computeScoreboard, type ScoreboardSummary } from '@lib/computeScoreboard';
 import { detectMilestones, type Milestone, type MilestoneId } from '@lib/matchMilestones';
 import { MilestoneBanner } from '@components/MilestoneBanner';
+import { LiveScoreboard, MatchTimer } from '@components/LiveHUD';
 
 // ─── Stage 7.4: Media controls subcomponents ─────────────────────────────────
 
@@ -1320,11 +1321,36 @@ export function SandboxScreen() {
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {/* Canvas */}
         <div style={{
-          flex: 1, display: 'flex',
+          flex: 1, display: 'flex', flexDirection: 'column',
           alignItems: 'center', justifyContent: 'center',
-          padding: 20, minWidth: 0,
+          padding: 20, minWidth: 0, gap: 8,
           position: 'relative',
         }}>
+          {/* Day 36: HUD parity с PvP — scoreboard + timer когда run mode */}
+          {rt.mode === 'run' && scoreboard && (
+            <div style={{
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', gap: 6,
+            }}>
+              <LiveScoreboard
+                T={T}
+                summary={scoreboard}
+                myPlayerIdx={
+                  rt.activePlayerId
+                    ? cfg.players.findIndex((p) => p.id === rt.activePlayerId)
+                    : null
+                }
+              />
+              {cfg.winCondition.kind === 'time' && (
+                <MatchTimer
+                  T={T}
+                  ticksElapsed={statsTick}
+                  threshold={cfg.winCondition.threshold}
+                  tps={cfg.baseTps * cfg.speedMultiplier}
+                />
+              )}
+            </div>
+          )}
           <div style={{
             border: (() => {
               if (rt.mode === 'playback') return '2px solid #FFD60A';  // Stage 7: golden
