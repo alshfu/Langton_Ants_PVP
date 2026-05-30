@@ -18,6 +18,7 @@ import {
   buildReplayFromMatch,
   buildAntsFromConfig as coreBuildAntsFromConfig,
   buildBirthConfig as coreBuildBirthConfig,
+  holdMajorityTick,
   type SimState,
   type Ant,
   type BirthConfig,
@@ -49,6 +50,10 @@ export class Match {
   private readonly tickIntervalMs: number;
   /** Queue: deploys ожидающие применения на следующем tick'е. */
   private pendingDeploys: DeployAction[] = [];
+  /** Day 35: hold_majority — per-player consecutive ticks выше threshold. */
+  private holdCounters: Record<string, number> = {};
+  /** Day 35: max match duration (safety) — для предотвращения forever matches. */
+  private readonly maxMatchTicks = 3000;
 
   constructor(room: Room, config: SandboxConfig, matchId: string, opts: MatchOptions = {}) {
     this.room = room;
@@ -148,7 +153,6 @@ export class Match {
     });
 
     // 4. Win condition check.
-    // Day 11: at time_expired — winner = most territory; tie если равные.
     const wc = this.config.winCondition;
     if (wc.kind === 'time' && this.sim.tick >= wc.threshold) {
       const { winnerIdx, territory } = computeWinnerByTerritory(
@@ -157,6 +161,38 @@ export class Match {
       const reason = winnerIdx == null ? 'time_expired_tie' : 'time_expired';
       this.finishAndBroadcast(this.makeResult(winnerIdx, reason, territory));
     }
+    // Day 35: hold_majority — каждый tick update counters, check winner.
+    if (wc.kind === 'hold_majority') {
+      const holdTicks = wc.holdTicks ?? 1000;
+      const r = holdMajorityTick(
+        this.sim,
+        this.config.players.map((p) => ({ id: p.id, name: p.name })),
+        wc.threshold,
+        holdTicks,
+        this.holdCounters,
+      );
+      this.holdCounters = r.counters;
+      if (r.winnerIdx != null) {
+        const { territory } = computeWinnerByTerritory(this.sim, this.config.players);
+        this.finishAndBroadcast(this.makeResult(
+          r.winnerIdx,
+          `held_majority_${wc.threshold}pct_${holdTicks}t`,
+          territory,
+        ));
+      } else if (this.sim.tick >= this.maxMatchTicks) {
+        // Safety: max duration → fallback к territory leader
+        const { winnerIdx, territory } = computeWinnerByTerritory(
+          this.sim, this.config.players,
+        );
+        const reason = winnerIdx == null ? 'max_duration_tie' : 'max_duration';
+        this.finishAndBroadcast(this.makeResult(winnerIdx, reason, territory));
+      }
+    }
+  }
+
+  /** Day 35: getter для current holdCounters — exposed для match_tick broadcast. */
+  getHoldCounters(): Record<string, number> {
+    return this.holdCounters;
   }
 
   /**

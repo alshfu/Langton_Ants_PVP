@@ -102,6 +102,10 @@ export type {
   PlayerRef,
 } from './lib/computeTerritory';
 
+// === hold_majority win condition (Day 35) ===================================
+export { holdMajorityTick } from './lib/holdMajority';
+export type { HoldCheckResult } from './lib/holdMajority';
+
 // === Build replay from match (Day 12) =======================================
 export {
   buildReplayFromMatch,

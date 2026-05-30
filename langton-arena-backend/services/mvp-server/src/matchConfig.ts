@@ -85,11 +85,31 @@ export function defaultMatchConfig(seed: number): SandboxConfig {
       pathEnabled: false,
       pathStraightTicks: 10,
     },
-    winCondition: { kind: 'time', threshold: 300 },
+    // Day 35: choose win condition via MATCH_WIN_KIND env var.
+    //   - 'time' (default, tests rely on this): match ends at tick=300, winner=most territory
+    //   - 'hold_majority': first to >threshold% holding holdTicks consecutive ticks
+    //     defaults: threshold=50, holdTicks=500 (50s @ 10 TPS)
+    winCondition: makeWinCondition(),
     reserveMode: false,
     deployRule: 'anywhere',
     deployRadius: 3,
   };
+}
+
+/**
+ * Day 35: build win condition based на process env. Default 'time' для
+ * совместимости с tests. Production может set MATCH_WIN_KIND=hold_majority.
+ */
+function makeWinCondition(): SandboxConfig['winCondition'] {
+  const env = (typeof process !== 'undefined' ? process.env : {}) ?? {};
+  const kind = env.MATCH_WIN_KIND ?? 'time';
+  if (kind === 'hold_majority') {
+    const threshold = parseInt(env.MATCH_HOLD_PCT ?? '50', 10);
+    const holdTicks = parseInt(env.MATCH_HOLD_TICKS ?? '500', 10);
+    return { kind: 'hold_majority', threshold, holdTicks };
+  }
+  // default: time
+  return { kind: 'time', threshold: 300 };
 }
 
 /** PvP лимит: spec §3.4 — server не вытянет > 200×200 в realtime. */
