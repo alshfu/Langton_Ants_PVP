@@ -26,9 +26,20 @@ export function startMatchCountdown(room: Room, ctx: ServerContext): boolean {
   if (room.countdownHandle) return false;
   if (room.players.length < 2) return false;
 
-  // Build config. PvP cap — sanity check (defaultMatchConfig=60×60, всегда OK).
+  // Build config. PvP cap — sanity check.
+  // Stage 9.1: apply room.configOverrides (host customized в lobby).
   const seed = ctx.seedFn();
-  const config = defaultMatchConfig(seed);
+  let config = defaultMatchConfig(seed);
+  if (Object.keys(room.configOverrides).length > 0) {
+    config = { ...config, ...room.configOverrides } as typeof config;
+    // Deep-merge winCondition if specified
+    if (room.configOverrides.winCondition && typeof room.configOverrides.winCondition === 'object') {
+      config.winCondition = {
+        ...config.winCondition,
+        ...(room.configOverrides.winCondition as object),
+      };
+    }
+  }
   if (config.width > PVP_MAX_FIELD || config.height > PVP_MAX_FIELD) {
     for (const p of room.players) p.sendError(ERROR_CODES.FIELD_TOO_LARGE_FOR_PVP);
     return false;

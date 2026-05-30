@@ -192,6 +192,13 @@ function handleJoinRoom(
     type: 'room_updated',
     players: room.getPlayerInfos(),
   });
+  // Stage 9.1: send initial config snapshot к newly joined player.
+  // Если host уже set overrides, joining player видит правильный config.
+  conn.send({
+    type: 'room_config_updated',
+    config: mergeConfig(room.configOverrides),
+    hostClientId: room.hostClientId ?? conn.clientId,
+  });
 }
 
 function handleLeaveRoom(conn: Connection, ctx: ServerContext): void {

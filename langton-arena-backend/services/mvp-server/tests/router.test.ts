@@ -101,8 +101,8 @@ describe('router.routeMessage', () => {
     expect(conn.roomCode).toBe('abc123');
     expect(rooms.size).toBe(1);
 
-    // 2 message: room_joined + room_updated
-    expect(conn.sent).toHaveLength(2);
+    // Stage 9.1: 3 messages: room_joined + room_updated + room_config_updated
+    expect(conn.sent).toHaveLength(3);
     const ack = conn.sent[0] as any;
     expect(ack.type).toBe('room_joined');
     expect(ack.roomCode).toBe('abc123');
@@ -111,6 +111,10 @@ describe('router.routeMessage', () => {
     const upd = conn.sent[1] as any;
     expect(upd.type).toBe('room_updated');
     expect(upd.players).toHaveLength(1);
+
+    const cfg = conn.sent[2] as any;
+    expect(cfg.type).toBe('room_config_updated');
+    expect(cfg.hostClientId).toBe(conn.clientId);
   });
 
   it('join_room — второй игрок попадает в тот же room', () => {
