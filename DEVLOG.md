@@ -3301,9 +3301,94 @@ forever на random heuristic level.
 mode (Stage 9 будет), все используют **тот же** engine. Один codepath,
 n consumers, n divergence points.
 
+### День 34 — hold_majority win condition
+
+User написал на Day 31 chat'е: "**главное условие победы кто первый
+захватит >50% территории и продержится 1000 ходов**". Я тогда ответил
+"defer to Day 33+" — Day 34 fulfill'ит обещание.
+
+**The deeper problem.** Time-based win condition (захвати больше
+за 30 сек) превращает PvP в **race** — всё сводится к last-tick
+deploys. Но это **не интересно стратегически**. Игрок может
+проиграть на финале даже если контролировал доминирующее
+большинство всю игру.
+
+`hold_majority` создаёт принципиально другую game dynamics:
+- **Strategic patience**: нужно построить армию и удерживать
+  территорию
+- **Comeback potential**: если ты упал ниже 50%, counter resets —
+  игра не закончена пока opp не наберёт 100 ticks подряд
+- **Dynamic tension**: каждое падение ниже threshold = momentum
+  shift, каждое восхождение — clock resumes
+
+User's specific example: 50% + 1000 ticks = "удержать большинство
+территории 100 секунд". Это **серьёзная стратегия**: ты не можешь
+просто "snipe" финал, нужно build sustainable lead.
+
+**Implementation simplicity.** Чистая логика, ~50 строк. Pure
+function в `computeMatchResult.ts`. State carry'ится через
+`prevMatch.holdCounters` field — никаких side effects.
+
+```ts
+for (each player p) {
+  if (p.territoryPct * 100 >= thresholdPct) {
+    counter[p] = (prevCounter[p] ?? 0) + 1;
+  } else {
+    counter[p] = 0; // reset!
+  }
+}
+if (any.counter >= holdTicks) → that player wins
+```
+
+Reset на падение ниже threshold это **критичный bit**. Без него
+hold_majority был бы equivalent "first to reach threshold for
+cumulative N ticks" что boring (player может быть в threshold
+1 раз и waste остальное время).
+
+**Architectural decision**: state в MatchResult (а не в SimState
+или separate counter struct). Почему:
+1. MatchResult уже carry'ится из tick в tick через `prevMatch`
+2. Никаких новых protocol changes
+3. Replay reproducibility — state reconstructed automatically
+4. Type safety — TypeScript обеспечит holdCounters consistency
+
+Альтернативы хуже:
+- State в SimState — confused engine semantics, replay impact
+- Separate ref in MatchScreen — non-portable, нужно везде дублировать
+
+**Stage 8 integration**. Server-side defaultMatchConfig пока
+`time`. Чтобы PvP реально использовал hold_majority — нужно:
+
+1. **Quick hack** (Stage 8.5): изменить `defaultMatchConfig.ts`
+   на server → VPS restart. Все matches будут с hold_majority.
+2. **Proper** (Stage 9): host выбирает в lobby → server sends
+   per-room config → flexible.
+
+На Day 34 реализована только client-side logic. Sandbox можно
+использовать с hold_majority через preset (Stage 5 уже поддерживает
+любой WinCondition). PvP через time-based по-прежнему.
+
+**Урок дня.** Win conditions — это **game design level**, не
+**implementation level**. Time-based это easy MVP, но boring к
+session 5. Hold-based это deeper strategy.
+
+Lesson for next project: при дизайне game mechanics, **win
+condition определяет всю стратегию**. Это не "implementation
+detail" — это **core game design**. Time-based = race optimization.
+Hold-based = sustained dominance. Last-survivor = combat focus.
+
+В моих предыдущих projects я обычно делал time-based потому что
+**easiest implementation**. Day 34 заставил меня pause и подумать
+"а как мне хочется чтобы выглядел winning state в этой игре?"
+Ответ был не time, а sustained dominance.
+
+8 новых tests + 1 для describeWinProgress. Bundle +0.7 KB raw /
++0.25 gzip — это **cheapest day** этапа в terms of code volume,
+но не в terms of strategic depth добавленной к game.
+
 ---
 
-### Этап 8 закрыт. Что построили за 33 дня
+### Этап 8 закрыт. Что построили за 34 дня
 
 - 5 микросервисов в `langton-arena-backend/` (только mvp-server
   реально работает; остальные — заготовки для Этапа 9)
@@ -3340,18 +3425,20 @@ n consumers, n divergence points.
   auto-spawn bot через ?bot= URL param + room code generator
 - Smart bot v2 — sim state tracking, frontier targeting,
   jittered intervals, initial burst, adaptive Hard panic mode
-- 529/529 тестов: 292 web + 131 core + 106 mvp-server
+- hold_majority win condition — "первый кто >threshold% и держит
+  N ticks подряд" (user-requested gameplay strategic depth)
+- 538/538 тестов: 301 web + 131 core + 106 mvp-server
 - 0 TypeScript ошибок strict mode
 
 **По числам Этапа 8:**
-- 33 дня (из них 2 — побочные квесты Render→VPS и Reddit)
+- 34 дня (из них 2 — побочные квесты Render→VPS и Reddit)
 - ~40 новых файлов в backend, ~34 новых в web
-- Bundle web вырос 132 → 230 КБ (за счёт MatchScreen + WSClient +
+- Bundle web вырос 132 → 231 КБ (за счёт MatchScreen + WSClient +
   clientPrediction + protocol типов + layered WebAudio FX + QR
   encoder + scoreboard + sandbox audio wire + rematch UI +
   onboarding hints + music sequencer + volume panel + milestones +
   sandbox music wire + HUD enhancements + match preview + bot opponent +
-  menu redesign + smart bot intelligence)
+  menu redesign + smart bot intelligence + hold_majority win logic)
 - Server image 192 МБ Docker, RAM ~50 МБ idle, ~80 МБ под матчем
 - 0 production incidents за 5 дней live (но 0 пользователей пока)
 
