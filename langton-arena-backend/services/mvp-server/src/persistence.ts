@@ -48,12 +48,24 @@ export interface ParticipantRecord {
   ratingAfter?: number;
 }
 
+/** Stage 9.5: filters для public replays browser. */
+export interface ReplayQuery {
+  limit?: number;        // default 20, max 100
+  offset?: number;       // default 0
+  winConditionKind?: string;  // filter by config.winCondition.kind
+  since?: number;        // unix ms — exclude matches startedAt < since
+  finishedOnly?: boolean; // default true — exclude matches без finishedAt
+}
+
 export interface PersistenceLayer {
   upsertUser(deviceId: string, nickname: string): Promise<User>;
   getUserStats(userId: string): Promise<User | null>;
   recordMatchStart(matchId: string, config: SandboxConfig, userIds: string[]): Promise<void>;
   recordMatchEnd(matchId: string, result: MatchResult, replay: Replay | null): Promise<void>;
   getRecentMatches(limit: number): Promise<MatchRecord[]>;
+  /** Stage 9.5: filtered listing для public browser. */
+  queryMatches(q: ReplayQuery): Promise<{ items: MatchRecord[]; total: number }>;
+  getMatch(matchId: string): Promise<MatchRecord | null>;
   close(): Promise<void>;
 }
 
@@ -75,6 +87,10 @@ export class NoOpPersistence implements PersistenceLayer {
   async recordMatchStart(_matchId: string, _config: SandboxConfig, _userIds: string[]): Promise<void> {}
   async recordMatchEnd(_matchId: string, _result: MatchResult, _replay: Replay | null): Promise<void> {}
   async getRecentMatches(_limit?: number): Promise<MatchRecord[]> { return []; }
+  async queryMatches(_q: ReplayQuery): Promise<{ items: MatchRecord[]; total: number }> {
+    return { items: [], total: 0 };
+  }
+  async getMatch(_matchId: string): Promise<MatchRecord | null> { return null; }
   async close(): Promise<void> {}
 }
 
@@ -235,6 +251,30 @@ export class JsonFilePersistence implements PersistenceLayer {
     const all = Object.values(this.state.matches);
     all.sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
     return all.slice(0, limit);
+  }
+
+  async queryMatches(q: ReplayQuery): Promise<{ items: MatchRecord[]; total: number }> {
+    const limit = Math.max(1, Math.min(100, q.limit ?? 20));
+    const offset = Math.max(0, q.offset ?? 0);
+    const finishedOnly = q.finishedOnly ?? true;
+    let all = Object.values(this.state.matches);
+    if (finishedOnly) all = all.filter((m) => m.finishedAt != null);
+    if (q.since != null) all = all.filter((m) => (m.startedAt ?? 0) >= q.since!);
+    if (q.winConditionKind) {
+      all = all.filter((m) => {
+        try {
+          const cfg = JSON.parse(m.configJson) as { winCondition?: { kind?: string } };
+          return cfg.winCondition?.kind === q.winConditionKind;
+        } catch { return false; }
+      });
+    }
+    all.sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
+    const total = all.length;
+    return { items: all.slice(offset, offset + limit), total };
+  }
+
+  async getMatch(matchId: string): Promise<MatchRecord | null> {
+    return this.state.matches[matchId] ?? null;
   }
 
   async close(): Promise<void> {

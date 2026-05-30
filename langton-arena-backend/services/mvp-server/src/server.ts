@@ -11,6 +11,7 @@ import { Connection } from './connection.js';
 import { routeMessage, handleConnectionClose } from './router.js';
 import { RoomManager } from './roomManager.js';
 import { makeContext, type ServerContext } from './serverContext.js';
+import { handleReplaysApi } from './replaysApi.js';
 
 export interface MvpServerOptions {
   /** Port. 0 для random — полезно для тестов. Default 8080. */
@@ -76,6 +77,11 @@ export class MvpServer {
           'Cache-Control': 'no-store',
         });
         res.end('OK · Langton Arena PvP MVP server\n');
+        return;
+      }
+      // Stage 9.5: REST API для replays browser.
+      if (url.startsWith('/api/replays')) {
+        void handleReplaysApi(req, res, this.ctx);
         return;
       }
       res.writeHead(404, { 'Content-Type': 'text/plain' });
