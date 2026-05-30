@@ -2,7 +2,7 @@
 
 > Где мы сейчас, куда движемся, и что ждёт за горизонтом.
 
-**Последнее обновление:** 2026-05-30, Day 34 of Stage 8
+**Последнее обновление:** 2026-05-30, **Stage 8 CLOSED** (Day 40)
 
 ---
 
@@ -10,28 +10,30 @@
 
 | | Значение |
 |---|---|
-| **Текущая стадия** | Stage 8 (PvP MVP), Day 34 of ~40 |
-| **Готовность к публичному запуску** | ~85% — основные механики работают, требуется polish |
-| **Tests** | 538/538 (301 web + 131 core + 106 mvp-server) |
-| **Production deploy** | https://alshfu.github.io/Langton_Ants_PVP/ (frontend) · wss://alshfu.com (server) |
-| **Bundle size** | 231 KB raw / 71 KB gzip |
+| **Текущая стадия** | **Stage 8 закрыта** ✅ · Stage 9 starting |
+| **Готовность к публичному запуску** | ✅ playable, polish optional |
+| **Tests** | 546/546 (301 web + 139 core + 106 mvp-server) |
+| **Production deploy** | https://alshfu.github.io/Langton_Ants_PVP/ · wss://alshfu.com |
+| **Bundle size** | **134 KB main / 46 KB gzip** (после Day 37 splitting) · Sandbox 91 KB lazy |
 | **Server image** | 192 MB Docker, ~50 MB RAM idle |
-| **Active users** | 0 (pre-launch, нет публикации) |
+| **Active users** | 0 (pre-launch — Stage 10 launches public release) |
 
-**Что работает прямо сейчас:**
-- Полный PvP цикл: lobby → countdown → matched → result
-- Bot opponent (3 difficulty levels, smart sim tracking)
-- Sandbox: 13 presets, replay recording/playback, snapshot step-back
-- Audio: dynamic music + milestone stingers + SFX, per-channel volumes
-- Mobile responsive, onboarding hints, rematch flow
-- Live HUD: territory %, ant count, countdown timer, critical pulse
+**Что работает (Stage 8 closure):**
+- ✅ Полный PvP цикл: lobby → countdown → playing → finished → rematch
+- ✅ Bot opponent (3 difficulty, smart sim tracking, frontier targeting, panic mode)
+- ✅ Sandbox: 13 presets, replay record/playback, step-back, HUD parity с PvP
+- ✅ Audio: dynamic music + milestone stingers + SFX + per-channel volumes
+- ✅ Mobile responsive, onboarding hints, rematch flow
+- ✅ Match HUD: territory %, ants count, countdown timer, critical pulse
+- ✅ hold_majority win condition (logic + server integration через env var)
+- ✅ Code splitting — main bundle 134 KB
 
-**Что не работает / отсутствует:**
-- Custom win conditions в PvP (logic готов, но server использует fixed time)
-- Spectator mode (только 2 players в room)
-- Persistent stats / leaderboard / accounts
-- Matchmaking (random opponents, не only по invite URL)
-- More than 2 players в PvP matches
+**Stage 9 будет адресовать:**
+- Lobby UI для config selection (host выбирает win condition + grid + mutations)
+- Spectator mode (3rd+ connection observes)
+- Persistent stats / leaderboard / accounts (PostgreSQL)
+- Matchmaking (ELO/SR, expanding window)
+- 3+ player PvP matches
 
 ---
 

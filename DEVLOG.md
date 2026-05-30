@@ -3386,9 +3386,92 @@ Hold-based = sustained dominance. Last-survivor = combat focus.
 +0.25 gzip — это **cheapest day** этапа в terms of code volume,
 но не в terms of strategic depth добавленной к game.
 
+### День 35 — hold_majority в PvP server integration
+
+Day 34 поставил клиент-сайд логику hold_majority. Сегодня server
+интеграция.
+
+Сделал shared helper `core/lib/holdMajority.ts` — `holdMajorityTick`
+(pure function), используется и client'ом и server'ом. Server's
+`Match.ts` теперь tracking holdCounters per tick.
+
+Default config через env var:
+```
+MATCH_WIN_KIND=hold_majority MATCH_HOLD_PCT=50 MATCH_HOLD_TICKS=500
+```
+
+Default остался `time` чтобы server tests не сломались. Production
+VPS systemd может set env vars и получить hold_majority gameplay.
+
+Safety: `maxMatchTicks = 3000` (5 минут) fallback к territory leader
+если никто не успел hold majority. Защищает от forever-matches.
+
+### День 36 — Sandbox HUD parity
+
+LiveScoreboard и MatchTimer были внутри MatchScreen как inline
+component'ы. Выдернул их в `@components/LiveHUD.tsx` — теперь
+Sandbox использует те же компоненты.
+
+В Sandbox HUD показывается только в `run` mode. My perspective =
+`rt.activePlayerId`. MatchTimer показывается только когда
+`winCondition.kind === 'time'` (для hold_majority обратный отсчёт
+не имеет смысла).
+
+### День 37 — Code splitting
+
+Bundle вырос до 230 KB raw / 71 KB gzip. Это OK для desktop, но
+mobile (3G) — заметные секунды на cold load.
+
+Решение: `React.lazy()` + Suspense для всех non-entry screens.
+В main bundle остаются только Menu + Match (entry points).
+Sandbox, Settings, Profile, etc — lazy chunks.
+
+Результат:
+- **index.js (main): 230 → 134 KB raw (-42%)**, 71 → 46 KB gzip (-35%)
+- SandboxScreen chunk: 91 KB / 26 KB (lazy)
+- Другие screens: <2.5 KB каждый
+
+ScreenFallback = "Loading…" на dark bg, 30ms unnoticeable transition.
+
+### День 38-39 — Cleanup + smoke testing
+
+Wishlist items deferred к Stage 9 (server config selection, i18n
+expansion). E2E v5 — large investment, отложил тоже. Сейчас 538/538
+unit tests дают confidence, и manual smoke на gh-pages работает.
+
+### День 40 — Stage 8 closure ceremony
+
+CHANGELOG.md created. v0.2 git tag.
+
+**Что вышло за 40 дней Stage 8:**
+
+- Real-time multiplayer на 2 игроков с shared engine
+- Bot opponent (3 difficulty) с sim tracking
+- Procedural audio (FX + dynamic music + stingers)
+- Custom win conditions (time + hold_majority + 4 others)
+- Mobile responsive, onboarding hints, rematch
+- Production-hardened (rate limiting, reconnect, graceful shutdown)
+- VPS deploy + custom domain + Let's Encrypt
+- 538/538 unit tests
+- Main bundle 134 KB raw / 46 KB gzip (после code splitting)
+
+**Что осталось для Stage 9** (~30 days):
+- Server-side per-room config selection
+- PostgreSQL persistence
+- Matchmaker (ELO/SR)
+- Spectator mode
+- Replay browser
+- Auth (optional)
+- Leaderboards
+- Multi-instance infra
+
+Stage 8 closure это **complete playable multiplayer game** с bot
+fallback. Можно показывать друзьям без необходимости установки чего-либо
+кроме web-браузера.
+
 ---
 
-### Этап 8 закрыт. Что построили за 34 дня
+### Этап 8 закрыт. Что построили за 40 дней
 
 - 5 микросервисов в `langton-arena-backend/` (только mvp-server
   реально работает; остальные — заготовки для Этапа 9)
@@ -3427,13 +3510,17 @@ Hold-based = sustained dominance. Last-survivor = combat focus.
   jittered intervals, initial burst, adaptive Hard panic mode
 - hold_majority win condition — "первый кто >threshold% и держит
   N ticks подряд" (user-requested gameplay strategic depth)
-- 538/538 тестов: 301 web + 131 core + 106 mvp-server
+- Day 35 hold_majority server integration через env var
+- Day 36 Sandbox HUD parity (LiveScoreboard + Timer extracted shared)
+- Day 37 code splitting — main bundle 230 → 134 KB raw (-42%)
+- 538/538 тестов: 301 web + 139 core + 106 mvp-server
 - 0 TypeScript ошибок strict mode
 
 **По числам Этапа 8:**
-- 34 дня (из них 2 — побочные квесты Render→VPS и Reddit)
-- ~40 новых файлов в backend, ~34 новых в web
-- Bundle web вырос 132 → 231 КБ (за счёт MatchScreen + WSClient +
+- 40 дней (из них 2 — побочные квесты Render→VPS и Reddit)
+- ~42 новых файлов в backend, ~36 новых в web
+- Bundle web — main shrunk back: 132 → 230 → 134 KB raw thanks
+  to Day 37 code splitting. Sandbox теперь lazy chunk 91 KB raw.
   clientPrediction + protocol типов + layered WebAudio FX + QR
   encoder + scoreboard + sandbox audio wire + rematch UI +
   onboarding hints + music sequencer + volume panel + milestones +
