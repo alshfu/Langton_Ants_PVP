@@ -34,11 +34,43 @@ import { VolumePanel } from '@components/VolumePanel';
 import { detectMilestones, type Milestone, type MilestoneId } from '@lib/matchMilestones';
 import { MilestoneBanner } from '@components/MilestoneBanner';
 import { LiveScoreboard, MatchTimer } from '@components/LiveHUD';
-import { MatchPreviewCard, STAGE8_DEFAULT_PREVIEW } from '@components/MatchPreviewCard';
+import { MatchPreviewCard, STAGE8_DEFAULT_PREVIEW, type MatchPreviewData } from '@components/MatchPreviewCard';
+import { RoomConfigEditor, type RoomConfigPatch } from '@components/RoomConfigEditor';
 import { BotPlayer, type BotDifficulty, isBotNickname } from '@lib/botPlayer';
 import { BotInviteDialog } from '@components/BotInviteDialog';
 
 type MatchPhase = 'connecting' | 'lobby' | 'countdown' | 'playing' | 'finished' | 'error';
+
+/** Stage 9.1: convert SandboxConfig → MatchPreviewData для preview card.
+ *  Используется в LobbyView когда room_config_updated пришёл. */
+function configToPreview(config: SandboxConfig): MatchPreviewData {
+  const tps = config.baseTps * config.speedMultiplier;
+  const wc = config.winCondition;
+  let winLabel = 'Most territory';
+  let durationSeconds: number | undefined;
+  if (wc.kind === 'time') {
+    durationSeconds = Math.round(wc.threshold / tps);
+    winLabel = 'Most territory';
+  } else if (wc.kind === 'hold_majority') {
+    const holdTicks = wc.holdTicks ?? 1000;
+    const holdSec = Math.round(holdTicks / tps);
+    winLabel = `Hold ≥${wc.threshold}% for ${holdSec}s`;
+  } else {
+    winLabel = wc.kind;
+  }
+  return {
+    width: config.width,
+    height: config.height,
+    topology: config.topology,
+    gridType: (config.gridType ?? 'square') as 'square' | 'triangle' | 'hexagonal',
+    antsPerPlayer: config.players[0]?.antCount ?? 3,
+    maxPlayers: config.players.length,
+    ruleLabel: 'Classic (RL)',
+    mutationsEnabled: config.mutation.enabled === true,
+    durationSeconds,
+    winLabel,
+  };
+}
 
 /** Stage 8: WS URL — env override иначе localhost:8080 default. */
 function getWsUrl(): string {
@@ -168,6 +200,9 @@ export function MatchScreen() {
   // Day 31: bot opponent — dialog state + bot client instance ref
   const [botDialogOpen, setBotDialogOpen] = useState(false);
   const botRef = useRef<BotPlayer | null>(null);
+  // Stage 9.1: dynamic room config from server (room_config_updated)
+  const [roomConfig, setRoomConfig] = useState<SandboxConfig | null>(null);
+  const [hostClientId, setHostClientId] = useState<string | null>(null);
 
   const me = players.find((p) => p.clientId === clientId);
   const opponent = players.find((p) => p.clientId !== clientId);
@@ -238,6 +273,11 @@ export function MatchScreen() {
     if (activeHint) markHintSeen(activeHint);
     setActiveHint(null);
   }, [activeHint]);
+
+  // Stage 9.1: send config patch from host
+  const sendConfigPatch = useCallback((patch: RoomConfigPatch) => {
+    wsRef.current?.send({ type: 'set_room_config', config: patch });
+  }, []);
 
   // Day 31: spawn bot opponent в том же room через secondary WS.
   // Server видит бота как обычного player'а — no protocol changes.
@@ -516,6 +556,11 @@ export function MatchScreen() {
             pendingDeploysByTickRef.current.clear();
             setPendingGhosts([]);
             setPhase('lobby');
+            break;
+          case 'room_config_updated':
+            // Stage 9.1: host changed config — update preview state
+            setRoomConfig(msg.config);
+            setHostClientId(msg.hostClientId);
             break;
           case 'error':
             // Day 10: deploy rejection → откатить matching ghost + toast.
@@ -802,6 +847,9 @@ export function MatchScreen() {
             onCopyUrl={copyShareUrl}
             onAddBot={() => setBotDialogOpen(true)}
             botSpawned={botRef.current != null}
+            roomConfig={roomConfig}
+            hostClientId={hostClientId}
+            onConfigChange={sendConfigPatch}
           />
         )}
         {phase === 'countdown' && (
@@ -986,6 +1034,7 @@ function ConnectingView({ t, T }: SubViewBase) {
 function LobbyView({
   t, T, players, me, opponent, roomCode, onReadyToggle, onCopyUrl,
   onAddBot, botSpawned,
+  roomConfig, hostClientId, onConfigChange,
 }: SubViewBase & {
   players: PlayerInfo[];
   me: PlayerInfo | undefined;
@@ -995,6 +1044,10 @@ function LobbyView({
   onCopyUrl: () => void;
   onAddBot: () => void;
   botSpawned: boolean;
+  // Stage 9.1
+  roomConfig: SandboxConfig | null;
+  hostClientId: string | null;
+  onConfigChange: (patch: RoomConfigPatch) => void;
 }) {
   // Day 19: room invite URL — для QR code и Web Share.
   const shareUrl = typeof window !== 'undefined' ? window.location.href : '';
@@ -1044,9 +1097,25 @@ function LobbyView({
         <PlayerSlot t={t} T={T} player={opponent} isMe={false} label={t('match.opponent', 'Opponent')} />
       </div>
 
-      {/* Day 30: match preview — что играть до Ready клика. Stage 8 MVP
-          фиксированный config (хардкод), Stage 9 будет от server. */}
-      <MatchPreviewCard data={STAGE8_DEFAULT_PREVIEW} />
+      {/* Day 30: match preview — что играть до Ready клика.
+          Stage 9.1: dynamic config from server (если room_config_updated пришёл),
+          fallback на STAGE8_DEFAULT_PREVIEW. */}
+      <MatchPreviewCard data={roomConfig ? configToPreview(roomConfig) : STAGE8_DEFAULT_PREVIEW} />
+
+      {/* Stage 9.1: config editor — host видит editable, others readonly. */}
+      {roomConfig && (
+        <RoomConfigEditor
+          current={{
+            width: roomConfig.width,
+            height: roomConfig.height,
+            topology: roomConfig.topology,
+            baseTps: roomConfig.baseTps,
+            winCondition: roomConfig.winCondition as { kind: string; threshold: number; holdTicks?: number },
+          }}
+          isHost={me?.clientId === hostClientId}
+          onChange={onConfigChange}
+        />
+      )}
 
       {me && (
         <Button
